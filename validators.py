@@ -1,80 +1,45 @@
-import re
-from typing import Any, Callable, Dict, List
+import time
+import random
+from typing import Callable, Any
 
-VALIDATOR_REGISTRY: Dict[str, Callable[[Any], bool]] = {}
+def retry_on_network_failure(func: Callable, max_attempts: int = 3, base_delay: float = 1.0) -> Any:
+    attempt = 0
+    while attempt < max_attempts:
+        try:
+            return func()
+        except (ConnectionError, TimeoutError, OSError) as error:
+            attempt += 1
+            if attempt == max_attempts:
+                raise
+            jitter = random.uniform(0, 0.5)
+            sleep_time = base_delay * (2 ** (attempt - 1)) + jitter
+            time.sleep(sleep_time)
+    return None
 
-def register(name: str) -> Callable:
-    def wrapper(func: Callable) -> Callable:
-        VALIDATOR_REGISTRY[name] = func
-        return func
-    return wrapper
+class RetryableValidator:
+    def __init__(self, max_retries: int = 5):
+        self.max_retries = max_retries
 
-@register("email")
-def is_valid_email(value: str) -> bool:
-    if not isinstance(value, str):
-        return False
-    regex = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+".[a-zA-Z0-9-.]+$"
-    return bool(re.match(regex, value))
-
-@register("phone")
-def is_valid_phone(value: str) -> bool:
-    if not isinstance(value, str):
-        return False
-    regex = r"^\+?1?\d{9,15}$"
-    return bool(re.match(regex, value))
-
-@register("username")
-def is_valid_username(value: str) -> bool:
-    if not isinstance(value, str):
-        return False
-    regex = r"^[a-zA-Z0-9_]{3,20}$"
-    return bool(re.match(regex, value))
-
-@register("password")
-def is_valid_password(value: str) -> bool:
-    if not isinstance(value, str) or len(value) < 8:
-        return False
-    has_digit = any(c.isdigit() for c in value)
-    has_letter = any(c.isalpha() for c in value)
-    has_special = any(not c.isalnum() for c in value)
-    return has_digit and has_letter and has_special
-
-def validate_data(data: Dict[str, Any], rules: Dict[str, str]) -> Dict[str, List[str]]:
-    errors: Dict[str, List[str]] = {}
-    for key, rule in rules.items():
-        if key not in data:
-            errors[key] = ["Field is required"]
-            continue
-        validator = VALIDATOR_REGISTRY.get(rule)
-        if not validator:
-            errors[key] = ["Unknown validation rule"]
-            continue
-        if not validator(data[key]):
-            errors[key] = [f"Invalid {rule}"]
-    return errors
-
-def is_valid(data: Dict[str, Any], rules: Dict[str, str]) -> bool:
-    error_dict = validate_data(data, rules)
-    return len(error_dict) == 0
-
-def batch_validate(items: List[Dict[str, Any]], rules: Dict[str, str]) -> List[bool]:
-    return [is_valid(item, rules) for item in items]
-
-def list_validators() -> List[str]:
-    return list(VALIDATOR_REGISTRY.keys())
-
-@register("positive_number")
-def is_positive_number(value: Any) -> bool:
-    try:
-        num = float(value)
-        return num > 0
-    except (ValueError, TypeError):
+    def validate_network_resource(self, resource_checker: Callable[[], bool]) -> bool:
+        for retry in range(self.max_retries):
+            try:
+                if resource_checker():
+                    return True
+            except Exception:
+                pass
+            if retry < self.max_retries - 1:
+                delay = 0.1 * (retry + 1) + random.random() * 0.1
+                time.sleep(delay)
         return False
 
-@register("non_empty")
-def is_non_empty(value: Any) -> bool:
-    if isinstance(value, str):
-        return len(value.strip()) > 0
-    if isinstance(value, (list, dict, set, tuple)):
-        return len(value) > 0
-    return value is not None
+def is_valid_api_endpoint(endpoint: str) -> bool:
+    def check():
+        import urllib.request
+        try:
+            req = urllib.request.Request(endpoint, method='HEAD')
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                return 200 <= resp.status < 400
+        except:
+            raise ConnectionError("Network failure simulated")
+    validator = RetryableValidator(max_retries=3)
+    return validator.validate_network_resource(check)
