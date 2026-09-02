@@ -1,45 +1,72 @@
-import time
-import random
-from typing import Callable, Any
-
-def retry_on_network_failure(func: Callable, max_attempts: int = 3, base_delay: float = 1.0) -> Any:
-    attempt = 0
-    while attempt < max_attempts:
-        try:
-            return func()
-        except (ConnectionError, TimeoutError, OSError) as error:
-            attempt += 1
-            if attempt == max_attempts:
-                raise
-            jitter = random.uniform(0, 0.5)
-            sleep_time = base_delay * (2 ** (attempt - 1)) + jitter
-            time.sleep(sleep_time)
-    return None
-
-class RetryableValidator:
-    def __init__(self, max_retries: int = 5):
-        self.max_retries = max_retries
-
-    def validate_network_resource(self, resource_checker: Callable[[], bool]) -> bool:
-        for retry in range(self.max_retries):
-            try:
-                if resource_checker():
-                    return True
-            except Exception:
-                pass
-            if retry < self.max_retries - 1:
-                delay = 0.1 * (retry + 1) + random.random() * 0.1
-                time.sleep(delay)
+import re
+from typing import Any
+def validate_email(email: str) -> bool:
+    if not isinstance(email, str) or not email:
         return False
-
-def is_valid_api_endpoint(endpoint: str) -> bool:
-    def check():
-        import urllib.request
-        try:
-            req = urllib.request.Request(endpoint, method='HEAD')
-            with urllib.request.urlopen(req, timeout=2) as resp:
-                return 200 <= resp.status < 400
-        except:
-            raise ConnectionError("Network failure simulated")
-    validator = RetryableValidator(max_retries=3)
-    return validator.validate_network_resource(check)
+    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    return re.match(pattern, email) is not None
+def validate_phone_number(phone: str) -> bool:
+    if not isinstance(phone, str):
+        return False
+    digits = ''.join(filter(str.isdigit, phone))
+    length = len(digits)
+    return length == 10 or (length == 11 and digits[0] == '1')
+def validate_url(url: str) -> bool:
+    if not isinstance(url, str) or not url:
+        return False
+    pattern = r"^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(/.*)?$"
+    return bool(re.match(pattern, url))
+def validate_ipv4(ip: str) -> bool:
+    if not isinstance(ip, str):
+        return False
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        return all(0 <= int(p) <= 255 for p in parts)
+    except ValueError:
+        return False
+def validate_positive_number(value: Any) -> bool:
+    try:
+        return float(value) > 0
+    except (ValueError, TypeError):
+        return False
+def validate_non_empty(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (str, list, dict, set, tuple)):
+        return bool(value)
+    return True
+def validate_credit_card(card: str) -> bool:
+    if not isinstance(card, str):
+        return False
+    digits = [int(d) for d in card if d.isdigit()]
+    if not (13 <= len(digits) <= 19):
+        return False
+    total = 0
+    for i, digit in enumerate(reversed(digits)):
+        if i % 2 == 1:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        total += digit
+    return total % 10 == 0
+def validate_hex_color(color: str) -> bool:
+    if not isinstance(color, str) or not color.startswith("#"):
+        return False
+    hex_part = color[1:]
+    if len(hex_part) not in (3, 6):
+        return False
+    try:
+        int(hex_part, 16)
+        return True
+    except ValueError:
+        return False
+def validate_password_strength(password: str) -> bool:
+    if not isinstance(password, str) or len(password) < 8:
+        return False
+    has_upper = sum(1 for c in password if c.isupper()) > 0
+    has_lower = sum(1 for c in password if c.islower()) > 0
+    has_digit = sum(1 for c in password if c.isdigit()) > 0
+    has_special = sum(1 for c in password if not c.isalnum()) > 0
+    return sum([has_upper, has_lower, has_digit, has_special]) >= 3
