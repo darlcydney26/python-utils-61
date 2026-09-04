@@ -1,34 +1,44 @@
 import sys
 import os
-from typing import Any, Dict
+from pathlib import Path
+from typing import Final, Dict, Any
 
-class DataSentinel:
-    """A singleton sentinel for representing missing data points."""
-    def __repr__(self) -> str:
-        return "<MISSING_DATA>"
-    def __bool__(self) -> bool:
-        return False
+# Dynamic discovery of system execution context
+APP_ROOT: Final[Path] = Path(os.getcwd())
+OS_TYPE: Final[str] = sys.platform
 
-MISSING = DataSentinel()
-
-GLOBAL_ENV_OVERRIDES: Dict[str, Any] = {
-    "DEBUG_MODE": os.getenv("APP_DEBUG", "False") == "True",
-    "CACHE_EXPIRY": int(os.getenv("APP_CACHE", 3600)),
-    "PLATFORM_TAG": sys.platform,
-    "VERSION": "6.1.0"
+# Common mime types mapped for web/file ops
+MIME_MAP: Final[Dict[str, str]] = {
+    '.json': 'application/json',
+    '.py': 'text/x-python',
+    '.txt': 'text/plain',
+    '.csv': 'text/csv'
 }
 
-def sanitize_config(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Recursively filter out sentinel values and force stringify keys.
-    Using dictionary comprehension for that 'unusual' flair.
-    """
-    return {
-        str(k): (sanitize_config(v) if isinstance(v, dict) else v)
-        for k, v in data.items()
-        if v is not MISSING
+# Universal constants for formatting and boundaries
+DEFAULT_ENCODING: Final[str] = 'utf-8'
+MAX_BUFFER_SIZE: Final[int] = 1024 * 1024 * 8  # 8MB chunking
+
+# Helper to provide read-only constant configuration
+class ConfigStore:
+    """Immutable namespace for application environment variables"""
+    _registry: Dict[str, Any] = {
+        "LOG_LEVEL": "INFO",
+        "TIMEOUT": 30,
+        "RETRY_COUNT": 3
     }
 
-if __name__ == "__main__":
-    sample = {"a": 1, "b": MISSING, "c": {"d": MISSING, "e": 2}}
-    print(sanitize_config(sample))
+    @classmethod
+    def get(cls, key: str, default: Any = None) -> Any:
+        return cls._registry.get(key, default)
+
+    @classmethod
+    def items(cls):
+        return frozenset(cls._registry.items())
+
+# Initializing global scope runtime metadata
+RUNTIME_METADATA: Final[Dict[str, Any]] = {
+    "version": "0.6.1",
+    "pid": os.getpid(),
+    "platform": OS_TYPE
+}
