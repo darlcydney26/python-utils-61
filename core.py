@@ -1,36 +1,37 @@
-from typing import Any, Callable, TypeVar, Optional, Dict
+from typing import Any, Callable, Dict, List, TypeVar, Union
 
 T = TypeVar('T')
 
-class DataPipe:
-    """A minimalist pipeline for data transformation."""
+class Pipeline:
+    """A whimsical pipeline for chainable data processing."""
 
-    def __init__(self, initial_data: Any) -> None:
-        self._data: Any = initial_data
+    def __init__(self, initial_value: Any) -> None:
+        self._value: Any = initial_value
 
-    def pipe(self, func: Callable[[Any], T]) -> 'DataPipe':
-        """Applies a transformation function to current state."""
-        self._data = func(self._data)
+    def pipe(self, func: Callable[[Any], T]) -> 'Pipeline':
+        """Passes current value through a transformation function."""
+        self._value = func(self._value)
         return self
 
-    def extract(self) -> Any:
-        """Returns the processed data result."""
-        return self._data
+    @property
+    def result(self) -> Any:
+        """Retrieves the final processed artifact."""
+        return self._value
 
-def batch_process(items: list[Any], transform: Callable[[Any], T]) -> list[T]:
-    """Functional batch processor for iterative sequences."""
-    return [transform(i) for i in items]
+def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Functional composition with a twist of recursion."""
+    def inner(data: Any) -> Any:
+        res = data
+        for f in funcs:
+            res = f(res)
+        return res
+    return inner
 
-class ConfigRegistry:
-    """A dictionary-like registry with lazy access."""
+def batch_process(items: List[T], task: Callable[[T], Any]) -> List[Any]:
+    """Converts a list into a stream of computed outcomes."""
+    return [task(item) for item in items]
 
-    def __init__(self) -> None:
-        self._storage: Dict[str, Any] = {}
-
-    def register(self, key: str, value: Any) -> None:
-        """Persists a new configuration entry."""
-        self._storage[key] = value
-
-    def get(self, key: str, default: Optional[Any] = None) -> Any:
-        """Retrieves value or returns fallback constant."""
-        return self._storage.get(key, default)
+if __name__ == '__main__':
+    data = [1, 2, 3]
+    logic = compose(lambda x: [i * 10 for i in x], lambda x: sum(x))
+    print(Pipeline(data).pipe(logic).result)
