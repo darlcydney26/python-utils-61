@@ -1,37 +1,51 @@
-from typing import Any, Callable, Dict, List, TypeVar, Union
+import types
+from typing import Callable, Any, List, Iterable
 
-T = TypeVar('T')
 
-class Pipeline:
-    """A whimsical pipeline for chainable data processing."""
+class UnrolledPipeline:
+    """Dynamic code generator for unrolled functional pipeline execution."""
 
-    def __init__(self, initial_value: Any) -> None:
-        self._value: Any = initial_value
+    def __init__(self, steps: List[Callable[[Any], Any]] = None):
+        self.steps = steps or []
+        self._compiled_runner = self._build_unrolled_runner()
 
-    def pipe(self, func: Callable[[Any], T]) -> 'Pipeline':
-        """Passes current value through a transformation function."""
-        self._value = func(self._value)
+    def _build_unrolled_runner(self) -> Callable[[Any], Any]:
+        if not self.steps:
+            return lambda x: x
+
+        env = {f"_fn_{i}": fn for i, fn in enumerate(self.steps)}
+        lines = ["def _runner(val):"]
+        for i in range(len(self.steps)):
+            lines.append(f"    val = _fn_{i}(val)")
+        lines.append("    return val")
+
+        source = "\n".join(lines)
+        code_obj = compile(source, "<unrolled_pipeline>", "exec")
+        local_scope = {}
+        exec(code_obj, env, local_scope)
+        return local_scope["_runner"]
+
+    def __call__(self, initial_value: Any) -> Any:
+        return self._compiled_runner(initial_value)
+
+    def add_step(self, step: Callable[[Any], Any]) -> "UnrolledPipeline":
+        self.steps.append(step)
+        self._compiled_runner = self._build_unrolled_runner()
         return self
 
-    @property
-    def result(self) -> Any:
-        """Retrieves the final processed artifact."""
-        return self._value
 
-def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """Functional composition with a twist of recursion."""
-    def inner(data: Any) -> Any:
-        res = data
-        for f in funcs:
-            res = f(res)
-        return res
-    return inner
+class CoreEngine:
+    """High-performance core execution engine with batch processing capabilities."""
 
-def batch_process(items: List[T], task: Callable[[T], Any]) -> List[Any]:
-    """Converts a list into a stream of computed outcomes."""
-    return [task(item) for item in items]
+    __slots__ = ("_pipeline",)
 
-if __name__ == '__main__':
-    data = [1, 2, 3]
-    logic = compose(lambda x: [i * 10 for i in x], lambda x: sum(x))
-    print(Pipeline(data).pipe(logic).result)
+    def __init__(self):
+        self._pipeline = UnrolledPipeline()
+
+    def add_transform(self, func: Callable[[Any], Any]) -> "CoreEngine":
+        self._pipeline.add_step(func)
+        return self
+
+    def process_batch(self, items: Iterable[Any]) -> list:
+        runner = self._pipeline
+        return [runner(item) for item in items]
