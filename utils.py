@@ -1,40 +1,34 @@
 import time
 import functools
-from typing import Callable, Any
+import random
 
-def retry_execution(max_retries: int = 3, delay: float = 1.0):
-    def decorator(func: Callable):
+def retry_operation(max_attempts=3, backoff=0.5, exceptions=(Exception,)): 
+    def decorator(func):
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception = None
-            for attempt in range(max_retries):
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
-                    time.sleep(delay * (2 ** attempt))
-            raise last_exception
+                except exceptions as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise e
+                    sleep_time = backoff * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
+                    time.sleep(sleep_time)
         return wrapper
     return decorator
 
-class NetworkCircuitBreaker:
-    def __init__(self, failure_threshold: int = 3):
-        self.failures = 0
-        self.threshold = failure_threshold
-        self.is_open = False
+class NetworkCircuit:
+    def __init__(self, target_func):
+        self.target = target_func
 
-    def __call__(self, func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            if self.is_open:
-                raise ConnectionError("circuit breaker is open")
-            try:
-                result = func(*args, **kwargs)
-                self.failures = 0
-                return result
-            except Exception as e:
-                self.failures += 1
-                if self.failures >= self.threshold:
-                    self.is_open = True
-                raise e
-        return wrapper
+    def __call__(self, *args, **kwargs):
+        safe_call = retry_operation(max_attempts=4)(self.target)
+        return safe_call(*args, **kwargs)
+
+def fetch_with_backoff(url):
+    # Simulate volatile network operation
+    if random.random() < 0.7:
+        raise ConnectionError("Temporary server glitch")
+    return f"Payload from {url}"
