@@ -1,29 +1,40 @@
-from typing import TypeVar, Iterable, Any, Callable, List
+import time
+import functools
+from typing import Callable, Any
 
-T = TypeVar('T')
+def retry_execution(max_retries: int = 3, delay: float = 1.0):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    time.sleep(delay * (2 ** attempt))
+            raise last_exception
+        return wrapper
+    return decorator
 
-def batch_process(iterable: Iterable[T], size: int, func: Callable[[List[T]], Any] = list) -> List[Any]:
-    """
-    partitioning of streams into chunks of arbitrary types.
+class NetworkCircuitBreaker:
+    def __init__(self, failure_threshold: int = 3):
+        self.failures = 0
+        self.threshold = failure_threshold
+        self.is_open = False
 
-    :param iterable: source data to be chunked.
-    :param size: integer defining the maximum chunk length.
-    :param func: transformation applied to each resultant batch.
-    :return: list of processed batch results.
-    """
-    items = list(iterable)
-    return [func(items[i:i + size]) for i in range(0, len(items), size)]
-
-def recursive_map(data: Any, transformer: Callable[[Any], Any]) -> Any:
-    """
-    depth-first traversal and modification of nested structures.
-
-    :param data: nested dictionary or list container.
-    :param transformer: callback function for modifying leaves.
-    :return: transformed structure with preserved hierarchy.
-    """
-    if isinstance(data, dict):
-        return {k: recursive_map(v, transformer) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [recursive_map(i, transformer) for i in data]
-    return transformer(data)
+    def __call__(self, func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if self.is_open:
+                raise ConnectionError("circuit breaker is open")
+            try:
+                result = func(*args, **kwargs)
+                self.failures = 0
+                return result
+            except Exception as e:
+                self.failures += 1
+                if self.failures >= self.threshold:
+                    self.is_open = True
+                raise e
+        return wrapper
