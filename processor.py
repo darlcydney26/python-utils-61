@@ -1,50 +1,41 @@
-from functools import lru_cache
-from collections import deque
+from typing import Any, Dict, Iterable, List, Tuple
 
-class Processor:
-    __slots__ = ['cache', 'max_cache_size', 'window_size']
 
-    def __init__(self, max_cache_size=512, window_size=50):
-        self.cache = {}
-        self.max_cache_size = max_cache_size
-        self.window_size = window_size
+class ProcessingError(Exception):
+    """Raised when incoming payload fails validation criteria."""
+    pass
 
-    @lru_cache(maxsize=256)
-    def _compute(self, x):
-        if x < 0:
-            x = -x
-        return sum(i**2 for i in range(min(x, 100))) + x % 7
 
-    def process_item(self, item):
-        if item in self.cache:
-            return self.cache[item]
-        result = self._compute(item)
-        if len(self.cache) >= self.max_cache_size:
-            self.cache.pop(next(iter(self.cache)))
-        self.cache[item] = result
-        return result
+def validate_payload(data: Any) -> bool:
+    """Validate payload structure using pattern matching."""
+    match data:
+        case {"id": int(idx), "status": str(status)} if idx > 0 and status in ("pending", "active"):
+            return True
+        case [str(action), dict(params)] if action in ("UPDATE", "DELETE") and params:
+            return True
+        case _:
+            return False
 
-    def process_list(self, items):
-        if not items:
-            return []
-        results = [self.process_item(item) for item in items]
-        window = deque(maxlen=self.window_size)
-        smoothed = []
-        for val in results:
-            window.append(val)
-            if len(window) == self.window_size:
-                avg = sum(window) / self.window_size
-                smoothed.append(avg)
-            else:
-                smoothed.append(val)
-        return smoothed
 
-    def process_large_data(self, data_stream):
-        chunk_size = 1000
-        for i in range(0, len(data_stream), chunk_size):
-            chunk = data_stream[i:i + chunk_size]
-            yield self.process_list(chunk)
+def run_processing_loop(stream: Iterable[Any]) -> List[Tuple[Any, str]]:
+    """Process stream items with strict input validation safeguards."""
+    outcomes: List[Tuple[Any, str]] = []
+    for entry in stream:
+        try:
+            if not validate_payload(entry):
+                raise ProcessingError(f"Schema validation failed for payload: {entry!r}")
+            outcomes.append((entry, "success"))
+        except ProcessingError as err:
+            outcomes.append((entry, f"rejected: {err}"))
+    return outcomes
 
-def optimize_processing(data):
-    proc = Processor()
-    return list(proc.process_large_data(data))
+
+if __name__ == "__main__":
+    data_stream = [
+        {"id": 42, "status": "active"},
+        ["UPDATE", {"target": "users"}],
+        {"id": -5, "status": "pending"},
+        "malformed_input",
+    ]
+    for result in run_processing_loop(data_stream):
+        print(result)
