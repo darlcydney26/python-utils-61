@@ -1,77 +1,35 @@
-import functools
-from typing import Any, Callable
+import sys
+from typing import Any, Optional, Callable
 
-class AppException(Exception):
-    def __init__(self, message: str, error_code: int = 500):
-        self.message = message
-        self.error_code = error_code
-        super().__init__(message)
+class EdgeCaseError(Exception):
+    """Base exception for anomalous state scenarios."""
+    pass
 
-class ValidationException(AppException):
-    def __init__(self, message: str):
-        super().__init__(message, 400)
-
-class ResourceNotFoundException(AppException):
-    def __init__(self, resource: str):
-        super().__init__(f"{resource} not found", 404)
-
-def exception_handler(default_return: Any = None):
+def silent_fallback(default_value: Any) -> Callable:
+    """Decorator for suppressing unexpected edge case failures."""
     def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return func(*args, **kwargs)
-            except AppException as e:
-                print(f"Handled {type(e).__name__}: {e.message} (code: {e.error_code})")
-                return default_return
-            except Exception as e:
-                print(f"Unexpected error: {str(e)}")
-                return default_return
+            except (ValueError, TypeError, IndexError, KeyError, ZeroDivisionError) as e:
+                print(f"Caught edge case {type(e).__name__}: returning default.", file=sys.stderr)
+                return default_value
         return wrapper
     return decorator
 
-@exception_handler(default_return=0)
-def divide_numbers(a: float, b: float) -> float:
-    if b == 0:
-        raise ValidationException("Division by zero not allowed")
-    return a / b
+def validate_bounds(value: Any, min_val: float, max_val: float) -> float:
+    """
+    Sanitizes numeric inputs into predictable ranges via clamping
+    to prevent downstream pipeline corruption.
+    """
+    try:
+        val = float(value)
+    except (ValueError, TypeError):
+        return 0.0
+    return max(min(val, max_val), min_val)
 
-@exception_handler(default_return=None)
-def get_resource(name: str) -> str:
-    if not name:
-        raise ValidationException("Name cannot be empty")
-    if name == "missing":
-        raise ResourceNotFoundException(name)
-    return f"Data for {name}"
-
-def retry_on_exception(max_attempts: int = 3) -> Callable:
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception = None
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_attempts - 1:
-                        print(f"Retrying after exception: {type(e).__name__}")
-            if last_exception:
-                raise last_exception
-            return None
-        return wrapper
-    return decorator
-
-@retry_on_exception(max_attempts=3)
-def fetch_data():
-    import random
-    if random.random() < 0.7:
-        raise AppException("Temporary failure", 503)
-    return {"data": "success"}
-
-def map_to_custom_exception(error: Exception) -> AppException:
-    if isinstance(error, ZeroDivisionError):
-        return ValidationException("Attempted division by zero")
-    if isinstance(error, FileNotFoundError):
-        return ResourceNotFoundException("requested file")
-    return AppException(str(error), 500)
+def registry_safeguard(data: Any, expected_type: type) -> Any:
+    """Ensures type integrity or forces standard recovery object."""
+    if not isinstance(data, expected_type):
+        return expected_type()
+    return data
