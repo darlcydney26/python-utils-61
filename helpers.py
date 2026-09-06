@@ -1,75 +1,54 @@
-import functools
-import time
-from typing import Any, Callable, Dict, List, Optional, TypeVar
+import collections.abc
+from typing import Any, Callable, Generic, TypeVar, Union
 
-T = TypeVar('T')
+T = TypeVar("T")
+R = TypeVar("R")
 
-def safe_get(data: Dict[str, Any], keys: List[str], default: Any = None) -> Any:
-    """Get nested value using reduce for creative path traversal"""
-    try:
-        return functools.reduce(
-            lambda d, k: d.get(k) if isinstance(d, dict) else None, 
-            keys, 
-            data
-        ) or default
-    except (AttributeError, TypeError):
-        return default
+class Pipe(Generic[T]):
+    """A wrapper enabling elegant function piping using the shift operator.
 
-def chunk_list(data: List[T], size: int) -> List[List[T]]:
-    """Recursive chunking for unusual list partitioning"""
-    if not data or size <= 0:
-        return []
-    return [data[:size]] + chunk_list(data[size:], size)
+    Allows wrapping a value and chaining unary operations sequentially, avoiding
+    deeply nested function calls.
 
-def flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
-    """Iterative flatten with stack for creative approach"""
-    items = []
-    stack = [(d, parent_key)]
-    while stack:
-        current, prefix = stack.pop()
-        for k, v in current.items():
-            new_key = f"{prefix}{sep}{k}" if prefix else k
-            if isinstance(v, dict):
-                stack.append((v, new_key))
-            else:
-                items.append((new_key, v))
-    return dict(items)
+    Example:
+        >>> Pipe("  hello  ") >> str.strip >> str.upper
+        Pipe('HELLO')
+    """
 
-def retry_with_backoff(max_attempts: int = 3, backoff_factor: float = 0.1) -> Callable:
-    """Decorator with exponential backoff using unusual timing"""
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception:
-                    if attempt == max_attempts - 1:
-                        raise
-                    time.sleep(backoff_factor * (2 ** attempt))
-            return None
-        return wrapper
-    return decorator
+    def __init__(self, value: T) -> None:
+        self.value: T = value
 
-def deep_merge(dict1: Dict[str, Any], dict2: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursive merge with copy for unusual combination"""
-    result = dict1.copy()
-    for k, v in dict2.items():
-        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-            result[k] = deep_merge(result[k], v)
-        else:
-            result[k] = v
-    return result
+    def __rshift__(self, func: Callable[[T], R]) -> "Pipe[R]":
+        """Passes the internal value to the callable, wrapping the result in a Pipe."""
+        if not callable(func):
+            raise TypeError(f"Operator '>>' requires a callable, got {type(func).__name__}")
+        return Pipe(func(self.value))
 
-def get_unique_preserved(items: List[T], key_func: Optional[Callable[[T], Any]] = None) -> List[T]:
-    """Unique items using dict for order preservation creatively"""
-    if key_func is None:
-        return list(dict.fromkeys(items))
-    seen: Dict[Any, bool] = {}
-    result: List[T] = []
-    for item in items:
-        k = key_func(item)
-        if k not in seen:
-            seen[k] = True
-            result.append(item)
-    return result
+    def unwrap(self) -> T:
+        """Returns the accumulated inner value."""
+        return self.value
+
+    def __repr__(self) -> str:
+        return f"Pipe({self._value_preview()})"
+
+    def _value_preview(self) -> str:
+        preview = repr(self.value)
+        return f"{preview[:47]}..." if len(preview) > 50 else preview
+
+
+def coalesce(*args: Union[T, Callable[[], T]]) -> T:
+    """Returns the first non-None value, evaluating callables lazily if encountered.
+
+    Useful for fallback configurations where calculating defaults might be expensive.
+
+    Args:
+        *args: Values or zero-argument callables.
+
+    Raises:
+        ValueError: If all arguments resolve to None or if no arguments are provided.
+    """
+    for arg in args:
+        val = arg() if isinstance(arg, collections.abc.Callable) else arg
+        if val is not None:
+            return val
+    raise ValueError("All coalescing alternatives resolved to None")
