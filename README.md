@@ -1,60 +1,57 @@
 # python-utils-61
 
-A collection of versatile and reusable utility functions for Python projects. Designed to simplify common programming tasks, `python-utils-61` helps increase developer productivity and code maintainability.
+A comprehensive collection of production-ready Python utility functions designed to streamline daily development tasks. This library focuses on performance, type safety, and reducing boilerplate code across your data processing and system automation scripts.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
 
-- **String Manipulation Tools**: Includes functions for advanced string formatting, parsing, and validation.
-- **File Handling Functions**: Simplifies file reading, writing, and management, with support for various file formats including CSV and JSON.
-- **Data Validation Utilities**: Provides easy-to-use checks for validating user input and ensuring data integrity.
-- **Date and Time Helpers**: Offers various functions for parsing, formatting, and manipulating dates and times.
+*   **Robust File Handling:** Simplify common IO operations with context-aware helpers for safe file reading, directory synchronization, and automated cleanup.
+*   **Data Validation Engine:** High-performance decorators for schema validation and type-checking, ensuring data integrity before processing.
+*   **Enhanced Logging Wrapper:** An easy-to-configure logging interface that supports rotating file handlers and structured JSON output for seamless integration with observability stacks.
+*   **Concurrency Helpers:** Simplified abstractions for multi-threading and asynchronous task queues, minimizing race conditions in resource-heavy environments.
 
 ## Installation
 
-To install `python-utils-61`, you can use pip. Open your terminal and run:
+Install the package directly via pip:
 
 ```bash
 pip install python-utils-61
 ```
 
-For development purposes, clone the repository to your local machine:
+For development installations including test dependencies:
 
 ```bash
-git clone https://github.com/yourusername/python-utils-61.git
+git clone https://github.com/Developer/python-utils-61.git
 cd python-utils-61
-```
-
-Then install the dependencies:
-
-```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ## Basic Usage
 
-Here's a quick example showcasing some of the utility functions:
+Quickly incorporate robust logging and data validation into your project:
 
 ```python
-from utils import StringUtils, FileUtils, Validator
+from python_utils_61.logger import setup_logger
+from python_utils_61.validation import validate_schema
 
-# String manipulation
-formatted_string = StringUtils.format_string("Hello, {}!", "World")
-print(formatted_string)  # Output: Hello, World!
+# Initialize structured logging
+logger = setup_logger("my_app", level="INFO")
 
-# File handling
-FileUtils.write_json('data.json', {'name': 'Alice', 'age': 30})
+# Define a simple validation schema
+schema = {"id": int, "name": str}
+data = {"id": 1, "name": "Task-01"}
 
-# Data validation
-if Validator.is_email_valid('test@example.com'):
-    print("Email is valid")
+if validate_schema(data, schema):
+    logger.info("Data validated successfully.")
 else:
-    print("Email is invalid")
+    logger.error("Validation failed for input.")
 ```
 
-For more detailed documentation, please refer to the [Wiki](https://github.com/yourusername/python-utils-61/wiki) section.
+## Contributing
 
-![License](https://img.shields.io/badge/license-MIT-brightgreen)
+Contributions are welcome! Please ensure all new utility modules include comprehensive type hinting and corresponding test cases in the `tests/` directory.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
