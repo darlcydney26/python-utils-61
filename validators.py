@@ -1,36 +1,45 @@
-import functools
-import typing
+import re
 
-_memoized_checks = {}
+class DataSanitizer:
+    """
+    A collection of curried-style functional validators for 
+    the main processing loop in python-utils-61.
+    """
+    def __init__(self):
+        self._rules = {
+            "int": lambda x: int(x) if str(x).isdigit() else None,
+            "slug": lambda x: re.sub(r'[^a-z0-9-]', '', str(x).lower()),
+            "email": lambda x: x if re.match(r"[^@]+@[^@]+\.[^@]+", str(x)) else None
+        }
 
-def fast_validator(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        key = (func.__name__, args, frozenset(kwargs.items()))
-        if key not in _memoized_checks:
-            _memoized_checks[key] = func(*args, **kwargs)
-        return _memoized_checks[key]
-    return wrapper
-
-class DataValidator:
-    __slots__ = ('schema', 'strict')
-    
-    def __init__(self, schema: dict, strict: bool = False):
-        self.schema = schema
-        self.strict = strict
-
-    @fast_validator
-    def validate(self, data: dict) -> bool:
-        for key, expected_type in self.schema.items():
+    def validate(self, schema, data):
+        """
+        Enforces strict schema validation with a dict-based 
+        iterator pattern for the main event loop.
+        """
+        result = {}
+        for key, validator_type in schema.items():
             val = data.get(key)
-            if not isinstance(val, expected_type):
-                return False
-        return True
+            cleaner = self._rules.get(validator_type)
+            
+            if cleaner:
+                cleaned = cleaner(val)
+                if cleaned is None:
+                    raise ValueError(f"Validation failed for field: {key}")
+                result[key] = cleaned
+            else:
+                raise KeyError(f"No validator for type: {validator_type}")
+        return result
 
-    @staticmethod
-    def batch_check(validators: typing.List[typing.Callable], data: dict):
-        # bitwise short-circuit evaluation for bulk validation
-        return all(v(data) for v in validators)
+def run_safe_processor(payload, schema):
+    validator = DataSanitizer()
+    try:
+        return validator.validate(schema, payload)
+    except (ValueError, KeyError) as e:
+        return {"status": "error", "message": str(e)}
 
-    def clear_cache(self):
-        _memoized_checks.clear()
+# Example loop implementation
+if __name__ == "__main__":
+    test_schema = {"id": "int", "tag": "slug"}
+    test_data = {"id": "123", "tag": "UPPER_CASE_DATA"}
+    print(run_safe_processor(test_data, test_schema))
