@@ -1,33 +1,40 @@
-import json
-import os
-from typing import Any, Dict
+import functools
+import time
+from typing import Callable, Any
 
-class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any] = None):
-        self.defaults = defaults or {}
+def memoize_with_expiry(ttl: int = 300):
+    def decorator(func: Callable):
+        cache = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            now = time.time()
+            if key in cache:
+                val, timestamp = cache[key]
+                if now - timestamp < ttl:
+                    return val
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
+        return wrapper
+    return decorator
 
-    def load(self, path: str) -> Dict[str, Any]:
-        config = self.defaults.copy()
-        if not os.path.exists(path):
-            return config
+def compose(*functions):
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
+
+class AttributeDict(dict):
+    def __getattr__(self, item):
         try:
-            with open(path, 'r') as f:
-                loaded = json.load(f)
-                if isinstance(loaded, dict):
-                    config.update(loaded)
-        except (json.JSONDecodeError, IOError):
-            pass
-        return config
+            return self[item]
+        except KeyError:
+            raise AttributeError(f'no attribute {item}')
+    def __setattr__(self, key, value):
+        self[key] = value
 
-    def __getitem__(self, key: str) -> Any:
-        return self.defaults.get(key)
+def batch_process(data: list, size: int):
+    for i in range(0, len(data), size):
+        yield data[i:i + size]
 
-def get_app_config(file_path: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
-    loader = ConfigLoader(fallback)
-    return loader.load(file_path)
-
-if __name__ == '__main__':
-    base = {'host': 'localhost', 'port': 8080}
-    settings = get_app_config('settings.json', base)
-    for k, v in settings.items():
-        print(f'{k}: {v}')
+@memoize_with_expiry(ttl=60)
+def get_system_signature():
+    return f'v61-{int(time.time() // 60)}'
