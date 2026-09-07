@@ -1,31 +1,56 @@
-import sys
 import logging
-from typing import Any, Dict
+import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Optional
 
-def validate_payload(data: Any) -> Dict[str, Any]:
-    if not isinstance(data, dict):
-        raise ValueError(f"Invalid data type: {type(data).__name__}")
-    if "id" not in data or not isinstance(data["id"], int):
-        raise ValueError("Missing or invalid integer ID")
-    return data
 
-class ProcessingLogger:
-    def __init__(self):
-        self.logger = logging.getLogger("python-utils-61")
-        self.logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler(sys.stdout)
-        self.logger.addHandler(handler)
+class CustomFormatter(logging.Formatter):
+    """Creative log formatter with dynamic dynamic tags and standard layout."""
 
-    def execute_loop(self, queue: list):
-        for item in queue:
-            try:
-                clean_item = validate_payload(item)
-                self.logger.info(f"Processed record {clean_item['id']}")
-            except (ValueError, TypeError) as e:
-                self.logger.error(f"Skipping malformed input: {e}")
-            except Exception as e:
-                self.logger.critical(f"Unexpected system failure: {e}")
+    FMT = "%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s"
+
+    def format(self, record: logging.LogRecord) -> str:
+        formatter = logging.Formatter(self.FMT, datefmt="%Y-%m-%d %H:%M:%S")
+        return formatter.format(record)
+
+
+def setup_logger(
+    name: str = "app",
+    log_file: Optional[str] = "app.log",
+    max_bytes: int = 1_048_576,
+    backup_count: int = 5,
+    level: int = logging.INFO,
+) -> logging.Logger:
+    """Configures and returns a logger instance with rotating file and stream handlers."""
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    if logger.handlers:
+        return logger
+
+    formatter = CustomFormatter()
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    if log_file:
+        path = Path(log_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            filename=path,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+    return logger
+
 
 if __name__ == "__main__":
-    p = ProcessingLogger()
-    p.execute_loop([{"id": 1}, "corrupted", {"id": 2}])
+    log = setup_logger("demo", "logs/demo.log")
+    log.info("Logger initialized successfully.")
+    log.warning("Sample warning entry for testing rotation setup.")
