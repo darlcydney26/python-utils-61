@@ -1,34 +1,29 @@
-import time
 import functools
-import random
+import time
+import itertools
+from typing import Callable, Any, Iterable
 
-def retry_operation(max_attempts=3, backoff=0.5, exceptions=(Exception,)): 
-    def decorator(func):
+def retry_on_failure(retries: int = 3, delay: float = 1.0):
+    def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
+            for i in range(retries):
                 try:
                     return func(*args, **kwargs)
-                except exceptions as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise e
-                    sleep_time = backoff * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
-                    time.sleep(sleep_time)
+                except Exception:
+                    if i == retries - 1: raise
+                    time.sleep(delay)
         return wrapper
     return decorator
 
-class NetworkCircuit:
-    def __init__(self, target_func):
-        self.target = target_func
+def batch_process(iterable: Iterable, size: int):
+    it = iter(iterable)
+    return iter(lambda: list(itertools.islice(it, size)), [])
 
-    def __call__(self, *args, **kwargs):
-        safe_call = retry_operation(max_attempts=4)(self.target)
-        return safe_call(*args, **kwargs)
+def chain_callables(functions: list[Callable]):
+    def pipeline(data: Any):
+        return functools.reduce(lambda v, f: f(v), functions, data)
+    return pipeline
 
-def fetch_with_backoff(url):
-    # Simulate volatile network operation
-    if random.random() < 0.7:
-        raise ConnectionError("Temporary server glitch")
-    return f"Payload from {url}"
+def flip_dict(d: dict):
+    return {v: k for k, v in d.items()}
