@@ -1,40 +1,37 @@
 import functools
-import time
+import logging
 from typing import Callable, Any
 
-def memoize_with_expiry(ttl: int = 300):
+def robust_execution(default_value: Any = None) -> Callable:
+    """Decorator that wraps calls in a defensive blanket."""
     def decorator(func: Callable):
-        cache = {}
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
-            now = time.time()
-            if key in cache:
-                val, timestamp = cache[key]
-                if now - timestamp < ttl:
-                    return val
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
+            try:
+                return func(*args, **kwargs)
+            except (TypeError, ValueError, AttributeError) as e:
+                logging.error(f"caught predictable edge case in {func.__name__}: {e}")
+                return default_value
+            except Exception as e:
+                logging.critical(f"unexpected chaos in {func.__name__}: {e}")
+                raise
         return wrapper
     return decorator
 
-def compose(*functions):
-    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
+def safe_dict_get(data: dict, path: str, default: Any = None) -> Any:
+    """Traverse dictionary keys safely using dot notation."""
+    if not isinstance(data, dict):
+        return default
+    keys = path.split('.')
+    curr = data
+    try:
+        for key in keys:
+            curr = curr[key]
+        return curr if curr is not None else default
+    except (KeyError, TypeError):
+        return default
 
-class AttributeDict(dict):
-    def __getattr__(self, item):
-        try:
-            return self[item]
-        except KeyError:
-            raise AttributeError(f'no attribute {item}')
-    def __setattr__(self, key, value):
-        self[key] = value
-
-def batch_process(data: list, size: int):
-    for i in range(0, len(data), size):
-        yield data[i:i + size]
-
-@memoize_with_expiry(ttl=60)
-def get_system_signature():
-    return f'v61-{int(time.time() // 60)}'
+@robust_execution(default_value=0)
+def perform_division(a: float, b: float) -> float:
+    """Edge case division with automatic zero fallback."""
+    return a / b
