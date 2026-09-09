@@ -1,33 +1,23 @@
-import logging
-from logging.handlers import RotatingFileHandler
 import sys
+from typing import Any, Optional, Dict
+from datetime import datetime
 
-def get_rotating_logger(name, log_file='app.log', max_bytes=1048576, backups=5):
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    formatter = logging.Formatter(
-        '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+class CustomLogger:
+    def __init__(self, prefix: str = "LOG") -> None:
+        self.prefix: str = prefix
+        self._levels: Dict[str, str] = {"INFO": "[i]", "ERROR": "[!]", "DEBUG": "[*]"}
 
-    # Console output for visibility
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    def log(self, message: Any, level: str = "INFO") -> None:
+        """Output formatted messages with timestamp to stdout."""
+        tag: str = self._levels.get(level.upper(), "[?]")
+        timestamp: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        formatted: str = f"{timestamp} {self.prefix} {tag} {message}"
+        sys.stdout.write(f"{formatted}\n")
 
-    # Rotating file storage
-    file_handler = RotatingFileHandler(
-        log_file, 
-        maxBytes=max_bytes, 
-        backupCount=backups
-    )
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    
-    return logger
+    def __call__(self, msg: Any, level: Optional[str] = None) -> None:
+        """Convenience call alias for default logging."""
+        self.log(msg, level or "INFO")
 
-# Dynamic instance for internal usage
-if __name__ == '__main__':
-    log = get_rotating_logger('python-utils-61')
-    log.info('logger initialization sequence complete')
+def get_logger(name: str = "app") -> CustomLogger:
+    """Factory function for creating logger instances."""
+    return CustomLogger(prefix=name.upper())
