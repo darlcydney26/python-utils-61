@@ -1,35 +1,35 @@
-import sys
-from typing import Any, Optional, Callable
+class DataProcessingError(Exception):
+    """Base exception for data flow issues."""
 
-class EdgeCaseError(Exception):
-    """Base exception for anomalous state scenarios."""
-    pass
+class TransformationError(DataProcessingError):
+    """Raised when data shape mismatch occurs."""
 
-def silent_fallback(default_value: Any) -> Callable:
-    """Decorator for suppressing unexpected edge case failures."""
-    def decorator(func: Callable) -> Callable:
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, IndexError, KeyError, ZeroDivisionError) as e:
-                print(f"Caught edge case {type(e).__name__}: returning default.", file=sys.stderr)
-                return default_value
-        return wrapper
-    return decorator
+class SchemaViolationError(DataProcessingError):
+    """Raised when data fails strict validation."""
 
-def validate_bounds(value: Any, min_val: float, max_val: float) -> float:
-    """
-    Sanitizes numeric inputs into predictable ranges via clamping
-    to prevent downstream pipeline corruption.
-    """
-    try:
-        val = float(value)
-    except (ValueError, TypeError):
-        return 0.0
-    return max(min(val, max_val), min_val)
+def graceful_fail(func):
+    """Decorator for trapping errors with custom labels."""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            raise DataProcessingError(f"Failure in {func.__name__}: {str(e)}") from e
+    return wrapper
 
-def registry_safeguard(data: Any, expected_type: type) -> Any:
-    """Ensures type integrity or forces standard recovery object."""
-    if not isinstance(data, expected_type):
-        return expected_type()
-    return data
+class ErrorAggregator:
+    """Registry for silent failure collection."""
+    def __init__(self):
+        self.errors = []
+
+    def capture(self, error: Exception):
+        self.errors.append({
+            "type": type(error).__name__,
+            "msg": str(error),
+            "context": "data-pipeline-runtime"
+        })
+
+    def has_errors(self) -> bool:
+        return len(self.errors) > 0
+
+    def report(self):
+        return self.errors
