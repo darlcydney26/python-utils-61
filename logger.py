@@ -1,23 +1,29 @@
-import sys
-from typing import Any, Optional, Dict
-from datetime import datetime
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 
-class CustomLogger:
-    def __init__(self, prefix: str = "LOG") -> None:
-        self.prefix: str = prefix
-        self._levels: Dict[str, str] = {"INFO": "[i]", "ERROR": "[!]", "DEBUG": "[*]"}
+def get_rotating_logger(name, log_file='app.log', max_bytes=1048576, backup_count=3):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    if not logger.handlers:
+        handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=max_bytes, 
+            backupCount=backup_count
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+    
+    return logger
 
-    def log(self, message: Any, level: str = "INFO") -> None:
-        """Output formatted messages with timestamp to stdout."""
-        tag: str = self._levels.get(level.upper(), "[?]")
-        timestamp: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        formatted: str = f"{timestamp} {self.prefix} {tag} {message}"
-        sys.stdout.write(f"{formatted}\n")
-
-    def __call__(self, msg: Any, level: Optional[str] = None) -> None:
-        """Convenience call alias for default logging."""
-        self.log(msg, level or "INFO")
-
-def get_logger(name: str = "app") -> CustomLogger:
-    """Factory function for creating logger instances."""
-    return CustomLogger(prefix=name.upper())
+if __name__ == '__main__':
+    # usage example: 
+    # logger = get_rotating_logger('dev_logger')
+    # logger.info('System initialization complete')
