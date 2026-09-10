@@ -1,39 +1,37 @@
-import sys
-import functools
-import traceback
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 
-def resilient_log(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except (OSError, IOError) as e:
-            sys.stderr.write(f"[CRITICAL LOG FAILURE] {type(e).__name__}: {e}\n")
-            return None
-        except Exception:
-            sys.stderr.write(f"[UNEXPECTED TRACEBACK]\n{traceback.format_exc()}")
-            raise
-    return wrapper
+def setup_dynamic_logger(name: str, log_file: str = 'app.log', level: int = logging.INFO) -> logging.Logger:
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
 
-@resilient_log
-def log_event(message: str, stream=sys.stdout):
-    if not isinstance(message, str):
-        message = str(message)
-    if stream.closed:
-        raise OSError("Target stream is inaccessible")
-    stream.write(f"{message}\n")
-    stream.flush()
+    if not logger.handlers:
+        # Creative use of rotation to prevent disk bloat while keeping history
+        handler = RotatingFileHandler(
+            log_file,
+            maxBytes=1024 * 1024 * 5,
+            backupCount=3,
+            encoding='utf-8'
+        )
+        
+        # Unusually structured formatter for quick terminal or grep scanning
+        formatter = logging.Formatter(
+            '[%(asctime)s] | %(levelname)-8s | %(name)s | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        
+        # Add a console fallback stream handler for local visibility
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
+        logger.addHandler(console)
+        
+    return logger
 
-class SafeLogger:
-    def __init__(self, target_file="runtime.log"):
-        self.target = target_file
-
-    def write(self, entry):
-        try:
-            with open(self.target, "a", encoding="utf-8") as f:
-                f.write(f"{entry}\n")
-        except (PermissionError, FileNotFoundError) as e:
-            fallback = sys.stderr
-            fallback.write(f"[FALLBACK LOG] {entry} (Reason: {e})\n")
-
-log = SafeLogger()
+# Example usage pattern for dev testing
+if __name__ == '__main__':
+    log = setup_dynamic_logger('core_module')
+    log.info('System initialization completed successfully')
