@@ -1,45 +1,29 @@
 import re
+from typing import Any, Callable, Dict, List
 
-class DataSanitizer:
-    """
-    A collection of curried-style functional validators for 
-    the main processing loop in python-utils-61.
-    """
-    def __init__(self):
-        self._rules = {
-            "int": lambda x: int(x) if str(x).isdigit() else None,
-            "slug": lambda x: re.sub(r'[^a-z0-9-]', '', str(x).lower()),
-            "email": lambda x: x if re.match(r"[^@]+@[^@]+\.[^@]+", str(x)) else None
-        }
+class DataSchema:
+    def __init__(self, rules: Dict[str, Callable[[Any], bool]]):
+        self.rules = rules
 
-    def validate(self, schema, data):
-        """
-        Enforces strict schema validation with a dict-based 
-        iterator pattern for the main event loop.
-        """
-        result = {}
-        for key, validator_type in schema.items():
-            val = data.get(key)
-            cleaner = self._rules.get(validator_type)
+    def validate(self, data: Dict[str, Any]) -> bool:
+        return all(rule(data.get(field)) for field, rule in self.rules.items())
+
+IS_POSITIVE = lambda x: isinstance(x, (int, float)) and x > 0
+IS_STRING = lambda x: isinstance(x, str) and len(x) > 0
+IS_HEX_COLOR = lambda x: isinstance(x, str) and bool(re.match(r'^#[0-9a-fA-F]{6}$', x))
+
+def run_loop(payloads: List[Dict[str, Any]], schema: DataSchema):
+    processed_count = 0
+    for item in payloads:
+        try:
+            if not schema.validate(item):
+                raise ValueError(f"Invalid item schema: {item}")
             
-            if cleaner:
-                cleaned = cleaner(val)
-                if cleaned is None:
-                    raise ValueError(f"Validation failed for field: {key}")
-                result[key] = cleaned
-            else:
-                raise KeyError(f"No validator for type: {validator_type}")
-        return result
-
-def run_safe_processor(payload, schema):
-    validator = DataSanitizer()
-    try:
-        return validator.validate(schema, payload)
-    except (ValueError, KeyError) as e:
-        return {"status": "error", "message": str(e)}
-
-# Example loop implementation
-if __name__ == "__main__":
-    test_schema = {"id": "int", "tag": "slug"}
-    test_data = {"id": "123", "tag": "UPPER_CASE_DATA"}
-    print(run_safe_processor(test_data, test_schema))
+            # simulate unusual but effective processing pattern
+            action = item.get('action', 'log')
+            getattr(print, action, print)(f"Processing: {item.get('id')}")
+            processed_count += 1
+        except (ValueError, TypeError) as e:
+            print(f"Skipping invalid entry: {e}")
+            continue
+    return processed_count
