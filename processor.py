@@ -1,51 +1,50 @@
-import functools
-from typing import Any, Callable, Dict, List, Union
+import inspect
+from typing import Any, Callable, Generator, Generic, Iterable, TypeVar, Union
+
+T = TypeVar("T")
+R = TypeVar("R")
 
 
-class Pipe:
-    """Infix pipe operator wrapper for concise functional data processing."""
+class PipeProcessor(Generic[T]):
+    """An unconventional stream processor that allows piping with the OR operator.
 
-    def __init__(self, func: Callable[..., Any]):
-        self.func = func
-        functools.update_wrapper(self, func)
+    Utilizes generator-based pipeline execution and automatic argument unpacking
+    via function signature introspection.
+    """
 
-    def __ror__(self, other: Any) -> Any:
-        if isinstance(other, tuple):
-            return self.func(*other)
-        return self.func(other)
+    def __init__(self, iterable: Iterable[T]) -> None:
+        self.stream: Iterable[T] = iterable
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return Pipe(lambda x: self.func(x, *args, **kwargs))
+    def __or__(self, func: Callable[..., R]) -> "PipeProcessor[R]":
+        """Pipes the current stream elements through the provided function.
 
+        Allows seamless cascading using the bitwise OR operator.
+        """
+        return PipeProcessor(self._apply(func))
 
-@Pipe
-def extract_paths(data: Any, delimiter: str = ".") -> Dict[str, Any]:
-    """Flattens a deeply nested dictionary into key paths using recursion."""
-    out = {}
+    def _apply(self, func: Callable[..., R]) -> Generator[R, None, None]:
+        """Generator applying the callable, automatically unpacking iterables if needed."""
+        try:
+            sig = inspect.signature(func)
+            req_params = sum(
+                1
+                for p in sig.parameters.values()
+                if p.default == inspect.Parameter.empty
+                and p.kind
+                not in (
+                    inspect.Parameter.VAR_POSITIONAL,
+                    inspect.Parameter.VAR_KEYWORD,
+                )
+            )
+        except (ValueError, TypeError):
+            req_params = 1
 
-    def _walk(obj: Any, prefix: str = ""):
-        if isinstance(obj, dict) and obj:
-            for key, val in obj.items():
-                new_prefix = f"{prefix}{delimiter}{key}" if prefix else str(key)
-                _walk(val, new_prefix)
-        elif isinstance(obj, (list, tuple)) and obj:
-            for idx, val in enumerate(obj):
-                new_prefix = f"{prefix}[{idx}]"
-                _walk(val, new_prefix)
-        else:
-            out[prefix] = obj
+        for item in self.stream:
+            if req_params > 1 and isinstance(item, (tuple, list)):
+                yield func(*item)  # type: ignore
+            else:
+                yield func(item)
 
-    _walk(data)
-    return out
-
-
-@Pipe
-def sanitize_values(data: Any, fallback: Any = None) -> Any:
-    """Recursively replaces None or empty strings with a default fallback."""
-    if isinstance(data, dict):
-        return {k: sanitize_values(v, fallback) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [sanitize_values(v, fallback) for v in data]
-    elif data is None or data == "":
-        return fallback
-    return data
+    def consume(self) -> list[T]:
+        """Consumes the underlying iterator and returns all elements as a list."""
+        return list(self.stream)
