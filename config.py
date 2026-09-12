@@ -1,37 +1,32 @@
+from typing import Any, Dict, Optional, Union
 import os
-import json
-import logging
 
-class ConfigLoader:
-    def __init__(self, path):
-        self.path = path
-        self.settings = {}
+class AppConfig:
+    """Dynamic configuration loader for python-utils-61."""
+    
+    def __init__(self, settings: Optional[Dict[str, Any]] = None) -> None:
+        self._data: Dict[str, Any] = settings or {}
 
-    def load(self):
-        try:
-            if not os.path.exists(self.path):
-                raise FileNotFoundError(f'config missing: {self.path}')
-            
-            with open(self.path, 'r') as f:
-                raw = f.read()
-                if not raw.strip():
-                    return {}
-                self.settings = json.loads(raw)
-        except (json.JSONDecodeError, FileNotFoundError, PermissionError) as e:
-            logging.error(f'config failure: {type(e).__name__}')
-            self.settings = {'error': True, 'reason': str(e)}
-        return self.settings
+    def get(self, key: str, default: Any = None) -> Any:
+        """Retrieve configuration value with fallback mechanism."""
+        return self._data.get(key, os.getenv(key.upper(), default))
 
-    def get(self, key, fallback=None):
-        return self.settings.get(key, fallback)
+    def set(self, key: str, value: Any) -> None:
+        """Update configuration dictionary runtime state."""
+        self._data[key] = value
 
-    def __getitem__(self, item):
-        if 'error' in self.settings:
-            return None
-        return self.settings[item]
+    def __getitem__(self, key: str) -> Any:
+        """Dictionary-like access support for settings."""
+        if key not in self._data:
+            raise KeyError(f"Missing required configuration key: {key}")
+        return self._data[key]
 
-# usage for 61-style patching
-def get_app_config(path='config.json'):
-    loader = ConfigLoader(path)
-    data = loader.load()
-    return data if not loader.get('error') else {'default': 'active'}
+    @classmethod
+    def from_env(cls, prefix: str = "APP_") -> 'AppConfig':
+        """Load variables from OS environment with prefix."""
+        items = {k[len(prefix):]: v for k, v in os.environ.items() if k.startswith(prefix)}
+        return cls(settings=items)
+
+    def __repr__(self) -> str:
+        """String representation for debugging visibility."""
+        return f"AppConfig(keys={list(self._data.keys())})"
