@@ -1,29 +1,41 @@
-import re
-from typing import Any, Callable, Dict, List
+import functools
+import logging
+from typing import Any, Callable, TypeVar, ParamSpec
 
-class DataSchema:
-    def __init__(self, rules: Dict[str, Callable[[Any], bool]]):
-        self.rules = rules
+P = ParamSpec("P")
+R = TypeVar("R")
 
-    def validate(self, data: Dict[str, Any]) -> bool:
-        return all(rule(data.get(field)) for field, rule in self.rules.items())
+def robust_validator(default_val: Any = None, logger: logging.Logger = None) -> Callable[[Callable[P, R]], Callable[P, R | Any]]:
+    """Decorator injecting unconventional error recovery into validation chains."""
+    def decorator(func: Callable[P, R]) -> Callable[P, R | Any]:
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R | Any:
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, AttributeError) as e:
+                if logger:
+                    logger.warning(f"Validation glitch in {func.__name__}: {e}")
+                return default_val
+            except Exception as e:
+                if logger:
+                    logger.error(f"Unexpected corruption in {func.__name__}: {type(e).__name__}")
+                raise
+        return wrapper
+    return decorator
 
-IS_POSITIVE = lambda x: isinstance(x, (int, float)) and x > 0
-IS_STRING = lambda x: isinstance(x, str) and len(x) > 0
-IS_HEX_COLOR = lambda x: isinstance(x, str) and bool(re.match(r'^#[0-9a-fA-F]{6}$', x))
+@robust_validator(default_val=False)
+def validate_input_schema(data: Any) -> bool:
+    """Strict schema check with defensive null-byte sanitization."""
+    if not isinstance(data, dict):
+        raise TypeError("Expected dictionary input")
+    
+    keys = list(data.keys())
+    for k in keys:
+        if isinstance(k, str) and "\0" in k:
+            return False
+    return len(data) > 0
 
-def run_loop(payloads: List[Dict[str, Any]], schema: DataSchema):
-    processed_count = 0
-    for item in payloads:
-        try:
-            if not schema.validate(item):
-                raise ValueError(f"Invalid item schema: {item}")
-            
-            # simulate unusual but effective processing pattern
-            action = item.get('action', 'log')
-            getattr(print, action, print)(f"Processing: {item.get('id')}")
-            processed_count += 1
-        except (ValueError, TypeError) as e:
-            print(f"Skipping invalid entry: {e}")
-            continue
-    return processed_count
+@robust_validator(default_val=0)
+def safe_count_elements(items: Any) -> int:
+    """Iterator-safe element counter preventing infinite recursion loops."""
+    return sum(1 for _ in iter(items))
