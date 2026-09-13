@@ -1,32 +1,34 @@
-from typing import Any, Dict, Optional, Union
+import json
 import os
+from typing import Any, Dict
 
-class AppConfig:
-    """Dynamic configuration loader for python-utils-61."""
-    
-    def __init__(self, settings: Optional[Dict[str, Any]] = None) -> None:
-        self._data: Dict[str, Any] = settings or {}
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any]):
+        self._data = defaults
+
+    def load(self, path: str) -> None:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r') as f:
+                    user_data = json.load(f)
+                    self._update_recursive(self._data, user_data)
+            except (json.JSONDecodeError, IOError):
+                pass
+
+    def _update_recursive(self, base: Dict[str, Any], overrides: Dict[str, Any]) -> None:
+        for key, value in overrides.items():
+            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+                self._update_recursive(base[key], value)
+            else:
+                base[key] = value
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Retrieve configuration value with fallback mechanism."""
-        return self._data.get(key, os.getenv(key.upper(), default))
-
-    def set(self, key: str, value: Any) -> None:
-        """Update configuration dictionary runtime state."""
-        self._data[key] = value
+        return self._data.get(key, default)
 
     def __getitem__(self, key: str) -> Any:
-        """Dictionary-like access support for settings."""
-        if key not in self._data:
-            raise KeyError(f"Missing required configuration key: {key}")
         return self._data[key]
 
-    @classmethod
-    def from_env(cls, prefix: str = "APP_") -> 'AppConfig':
-        """Load variables from OS environment with prefix."""
-        items = {k[len(prefix):]: v for k, v in os.environ.items() if k.startswith(prefix)}
-        return cls(settings=items)
-
-    def __repr__(self) -> str:
-        """String representation for debugging visibility."""
-        return f"AppConfig(keys={list(self._data.keys())})"
+def load_config(path: str, defaults: Dict[str, Any]) -> ConfigLoader:
+    loader = ConfigLoader(defaults)
+    loader.load(path)
+    return loader
