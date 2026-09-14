@@ -1,47 +1,40 @@
 import functools
-from typing import Callable, Any, Dict, Tuple
+import time
+from typing import Any, Callable
 
-class AdaptiveCache:
-    """
-    A self-optimizing decorator that dynamically disables caching
-    if the hit-to-miss ratio drops below a critical threshold.
-    """
-    def __init__(self, min_calls: int = 20, min_ratio: float = 0.15):
-        self.min_calls = min_calls
-        self.min_ratio = min_ratio
+def compose(*functions: Callable) -> Callable:
+    """Right-to-left function composition."""
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
 
-    def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        cache: Dict[Tuple[Any, ...], Any] = {}
-        hits, misses = 0, 0
-        bypass = False
-
+def memoize_timed(seconds: int) -> Callable:
+    """Decorator with TTL-based expiration."""
+    def decorator(func: Callable) -> Callable:
+        cache = {}
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            nonlocal hits, misses, bypass
-            
-            if bypass:
-                return func(*args, **kwargs)
-            
-            key = (args, tuple(sorted(kwargs.items())))
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            now = time.time()
             if key in cache:
-                hits += 1
-                return cache[key]
-            
+                result, timestamp = cache[key]
+                if now - timestamp < seconds:
+                    return result
             result = func(*args, **kwargs)
-            cache[key] = result
-            misses += 1
-            
-            total = hits + misses
-            if total >= self.min_calls:
-                ratio = hits / total
-                if ratio < self.min_ratio:
-                    bypass = True
-                    cache.clear()
-            
+            cache[key] = (result, now)
             return result
-        
-        def cache_info() -> Dict[str, Any]:
-            return {"hits": hits, "misses": misses, "bypassed": bypass, "size": len(cache)}
-            
-        wrapper.cache_info = cache_info  # type: ignore
         return wrapper
+    return decorator
+
+def deep_flatten(items: list) -> list:
+    """Recursive flattening via generator yield."""
+    def _flat(obj):
+        for i in obj:
+            if isinstance(i, (list, tuple)):
+                yield from _flat(i)
+            else:
+                yield i
+    return list(_flat(items))
+
+def chunker(iterable: Any, size: int):
+    """Iterator segmenting for memory efficiency."""
+    for i in range(0, len(iterable), size):
+        yield iterable[i:i + size]
