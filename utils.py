@@ -1,29 +1,34 @@
-import functools
-import time
-import itertools
-from typing import Callable, Any, Iterable
+from typing import Any, Callable, Dict, List, TypeVar, Union
 
-def retry_on_failure(retries: int = 3, delay: float = 1.0):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            for i in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception:
-                    if i == retries - 1: raise
-                    time.sleep(delay)
-        return wrapper
-    return decorator
+T = TypeVar('T')
 
-def batch_process(iterable: Iterable, size: int):
-    it = iter(iterable)
-    return iter(lambda: list(itertools.islice(it, size)), [])
-
-def chain_callables(functions: list[Callable]):
-    def pipeline(data: Any):
-        return functools.reduce(lambda v, f: f(v), functions, data)
+def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Chain callables into a single functional pipeline."""
+    def pipeline(data: Any) -> Any:
+        for func in funcs:
+            data = func(data)
+        return data
     return pipeline
 
-def flip_dict(d: dict):
-    return {v: k for k, v in d.items()}
+def dict_deep_merge(base: Dict[Any, Any], update: Dict[Any, Any]) -> Dict[Any, Any]:
+    """Recursive dictionary merging for nested config structures."""
+    for key, value in update.items():
+        if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+            dict_deep_merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+def flatten_list(nested: List[Any]) -> List[Any]:
+    """Generator-based flattening of arbitrarily nested iterables."""
+    result: List[Any] = []
+    for item in nested:
+        if isinstance(item, list):
+            result.extend(flatten_list(item))
+        else:
+            result.append(item)
+    return result
+
+def batch_process(items: List[T], size: int) -> List[List[T]]:
+    """Slicing logic for memory-efficient chunked iteration."""
+    return [items[i:i + size] for i in range(0, len(items), size)]
