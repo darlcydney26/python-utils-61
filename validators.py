@@ -1,41 +1,40 @@
 import functools
-import logging
-from typing import Any, Callable, TypeVar, ParamSpec
 
-P = ParamSpec("P")
-R = TypeVar("R")
-
-def robust_validator(default_val: Any = None, logger: logging.Logger = None) -> Callable[[Callable[P, R]], Callable[P, R | Any]]:
-    """Decorator injecting unconventional error recovery into validation chains."""
-    def decorator(func: Callable[P, R]) -> Callable[P, R | Any]:
+def validate_inputs(schema):
+    def decorator(func):
         @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R | Any:
-            try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, AttributeError) as e:
-                if logger:
-                    logger.warning(f"Validation glitch in {func.__name__}: {e}")
-                return default_val
-            except Exception as e:
-                if logger:
-                    logger.error(f"Unexpected corruption in {func.__name__}: {type(e).__name__}")
-                raise
+        def wrapper(*args, **kwargs):
+            for key, validator in schema.items():
+                value = kwargs.get(key)
+                if value is not None and not validator(value):
+                    raise ValueError(f'invalid input for {key}: {value}')
+            return func(*args, **kwargs)
         return wrapper
     return decorator
 
-@robust_validator(default_val=False)
-def validate_input_schema(data: Any) -> bool:
-    """Strict schema check with defensive null-byte sanitization."""
-    if not isinstance(data, dict):
-        raise TypeError("Expected dictionary input")
-    
-    keys = list(data.keys())
-    for k in keys:
-        if isinstance(k, str) and "\0" in k:
-            return False
-    return len(data) > 0
+def is_positive(x):
+    return isinstance(x, (int, float)) and x > 0
 
-@robust_validator(default_val=0)
-def safe_count_elements(items: Any) -> int:
-    """Iterator-safe element counter preventing infinite recursion loops."""
-    return sum(1 for _ in iter(items))
+def is_non_empty_str(x):
+    return isinstance(x, str) and len(x) > 0
+
+def process_main_loop(data_stream):
+    """
+    Main processing loop with declarative validation
+    """
+    schema = {
+        'id': is_positive,
+        'payload': is_non_empty_str
+    }
+
+    @validate_inputs(schema)
+    def handle_item(item_id, payload):
+        return f'processed {item_id}: {payload}'
+
+    results = []
+    for entry in data_stream:
+        try:
+            results.append(handle_item(id=entry.get('id'), payload=entry.get('payload')))
+        except (ValueError, TypeError) as e:
+            print(f'skipping malformed entry: {e}')
+    return results
