@@ -1,49 +1,33 @@
-import os
 import json
+import os
 from typing import Any, Dict
 
-class Config:
-    """Dynamic configuration loader supporting dict cascading and env variable overrides."""
-    def __init__(self, data: Dict[str, Any] = None, env_prefix: str = "APP_"):
-        self._data = data or {}
-        self._env_prefix = env_prefix
+class ConfigLoader:
+    """A whimsical yet functional configuration loader using dictionary chaining."""
+    def __init__(self, defaults: Dict[str, Any] = None):
+        self._config = defaults or {}
 
-    def __getattr__(self, name: str) -> Any:
-        env_var = f"{self._env_prefix}{name.upper()}"
-        if env_var in os.environ:
-            try:
-                return json.loads(os.environ[env_var])
-            except ValueError:
-                return os.environ[env_var]
+    def load(self, path: str) -> 'ConfigLoader':
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                file_data = json.load(f)
+                self._deep_update(self._config, file_data)
+        return self
 
-        if name not in self._data:
-            prefix_to_check = f"{env_var}_"
-            if any(k.startswith(prefix_to_check) for k in os.environ):
-                return Config({}, env_prefix=prefix_to_check)
-            raise AttributeError(f"Configuration key '{name}' is not defined")
-
-        val = self._data[name]
-        if isinstance(val, dict):
-            return Config(val, env_prefix=f"{env_var}_")
-        return val
+    def _deep_update(self, source: Dict, overrides: Dict):
+        for key, value in overrides.items():
+            if isinstance(value, dict) and key in source and isinstance(source[key], dict):
+                self._deep_update(source[key], value)
+            else:
+                source[key] = value
 
     def get(self, key: str, default: Any = None) -> Any:
-        try:
-            return self.__getattr__(key)
-        except AttributeError:
-            return default
+        return self._config.get(key, default)
 
-    def __or__(self, fallback: 'Config') -> 'Config':
-        if not isinstance(fallback, Config):
-            raise TypeError("Can only merge with another Config instance")
-        merged = self._deep_merge(fallback._data, self._data)
-        return Config(merged, self._env_prefix)
+    def __getattr__(self, item: str) -> Any:
+        if item in self._config:
+            return self._config[item]
+        raise AttributeError(f"Config has no attribute {item}")
 
-    def _deep_merge(self, base: dict, overrides: dict) -> dict:
-        res = base.copy()
-        for k, v in overrides.items():
-            if k in res and isinstance(res[k], dict) and isinstance(v, dict):
-                res[k] = self._deep_merge(res[k], v)
-            else:
-                res[k] = v
-        return res
+    def __repr__(self) -> str:
+        return f"<ConfigLoader keys={list(self._config.keys())}>"
