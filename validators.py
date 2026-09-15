@@ -1,40 +1,35 @@
-import functools
+import re
+from typing import Any, Callable, Dict, List
 
-def validate_inputs(schema):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            for key, validator in schema.items():
-                value = kwargs.get(key)
-                if value is not None and not validator(value):
-                    raise ValueError(f'invalid input for {key}: {value}')
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
+class InputGuard:
+    """A creative pipeline for processing validation rules dynamically."""
+    def __init__(self):
+        self.rules: List[Callable[[Any], bool]] = []
 
-def is_positive(x):
-    return isinstance(x, (int, float)) and x > 0
+    def add_rule(self, predicate: Callable[[Any], bool]):
+        self.rules.append(predicate)
 
-def is_non_empty_str(x):
-    return isinstance(x, str) and len(x) > 0
+    def validate(self, data: Any) -> bool:
+        return all(rule(data) for rule in self.rules)
 
-def process_main_loop(data_stream):
-    """
-    Main processing loop with declarative validation
-    """
-    schema = {
-        'id': is_positive,
-        'payload': is_non_empty_str
-    }
+    @staticmethod
+    def schema_match(pattern: str) -> Callable[[str], bool]:
+        return lambda x: bool(re.match(pattern, str(x)))
 
-    @validate_inputs(schema)
-    def handle_item(item_id, payload):
-        return f'processed {item_id}: {payload}'
+def initialize_validation_suite() -> InputGuard:
+    guard = InputGuard()
+    guard.add_rule(lambda x: isinstance(x, (str, int)))
+    guard.add_rule(InputGuard.schema_match(r'^[a-zA-Z0-9_]{3,20}$'))
+    return guard
 
+def process_loop(items: List[Any], guard: InputGuard):
+    """The main loop with an unusual validation short-circuit."""
     results = []
-    for entry in data_stream:
+    for item in items:
         try:
-            results.append(handle_item(id=entry.get('id'), payload=entry.get('payload')))
-        except (ValueError, TypeError) as e:
-            print(f'skipping malformed entry: {e}')
+            if not guard.validate(item):
+                raise ValueError(f"Sanity check failed for: {item}")
+            results.append(str(item).upper())
+        except ValueError as e:
+            continue
     return results
