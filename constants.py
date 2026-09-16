@@ -1,41 +1,29 @@
-import enum
-from typing import Any, Dict, Callable
+from typing import Final, Dict, Any
 
-class DataTransformer(enum.Enum):
-    STRIP = str.strip
-    UPPER = str.upper
-    LOWER = str.lower
-    TRIM_ZERO = lambda s: s.lstrip('0')
+# Configuration constants for python-utils-61
+# Using a creative approach with a dict-based access container
 
-class Registry:
-    """A magical bucket for data conversion functions."""
-    _registry: Dict[str, Callable[[Any], Any]] = {}
+MAX_RETRIES: Final[int] = 5
+DEFAULT_TIMEOUT: Final[float] = 30.5
+ENVIRONMENT_VAR: Final[str] = "PY_UTILS_ENV"
 
-    @classmethod
-    def register(cls, key: str):
-        def wrapper(func: Callable):
-            cls._registry[key] = func
-            return func
-        return wrapper
+class ConfigSchema:
+    """Container for structured application constants."""
+    
+    SETTINGS: Final[Dict[str, Any]] = {
+        "version": "1.0.0",
+        "debug": False,
+        "log_level": "INFO"
+    }
 
-    @classmethod
-    def apply(cls, key: str, value: Any) -> Any:
-        func = cls._registry.get(key, lambda x: x)
-        return func(value)
+def get_retry_delay(attempt: int) -> float:
+    """
+    Calculates exponential backoff for retries.
+    
+    :param attempt: The current retry attempt count
+    :return: Calculated sleep duration in seconds
+    """
+    return float(2 ** attempt)
 
-@Registry.register('currency')
-def clean_currency(val: Any) -> float:
-    if isinstance(val, str):
-        return float(val.replace('$', '').replace(',', ''))
-    return float(val)
-
-@Registry.register('bool_int')
-def to_bool(val: Any) -> bool:
-    return int(val) != 0
-
-DEFAULT_CONFIG = {
-    'encoding': 'utf-8',
-    'max_retries': 3,
-    'timeout': 30,
-    'transformers': DataTransformer
-}
+# Global flag indicating system state
+SYSTEM_ACTIVE: Final[bool] = True
