@@ -1,40 +1,38 @@
 import functools
 import time
-from typing import Any, Callable
+import collections
 
-def compose(*functions: Callable) -> Callable:
-    """Right-to-left function composition."""
-    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
+class memoize_with_ttl:
+    def __init__(self, ttl=60):
+        self.ttl = ttl
+        self.cache = {}
+        self.expiry = {}
 
-def memoize_timed(seconds: int) -> Callable:
-    """Decorator with TTL-based expiration."""
-    def decorator(func: Callable) -> Callable:
-        cache = {}
+    def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
+            key = (args, tuple(sorted(kwargs.items())))
             now = time.time()
-            if key in cache:
-                result, timestamp = cache[key]
-                if now - timestamp < seconds:
-                    return result
+            if key in self.cache and now < self.expiry.get(key, 0):
+                return self.cache[key]
             result = func(*args, **kwargs)
-            cache[key] = (result, now)
+            self.cache[key] = result
+            self.expiry[key] = now + self.ttl
             return result
         return wrapper
-    return decorator
 
-def deep_flatten(items: list) -> list:
-    """Recursive flattening via generator yield."""
-    def _flat(obj):
-        for i in obj:
-            if isinstance(i, (list, tuple)):
-                yield from _flat(i)
-            else:
-                yield i
-    return list(_flat(items))
+class DataProcessor:
+    def __init__(self):
+        self._buffer = collections.deque(maxlen=1000)
 
-def chunker(iterable: Any, size: int):
-    """Iterator segmenting for memory efficiency."""
-    for i in range(0, len(iterable), size):
-        yield iterable[i:i + size]
+    @memoize_with_ttl(ttl=30)
+    def process_heavy_computation(self, data: int) -> int:
+        return sum(i * i for i in range(data))
+
+    def batch_process(self, data_points):
+        return [self.process_heavy_computation(d) for d in data_points]
+
+    def flush_memory(self):
+        self._buffer.clear()
+        self.process_heavy_computation.cache.clear()
+        self.process_heavy_computation.expiry.clear()
