@@ -1,36 +1,34 @@
-import logging
-from logging.handlers import RotatingFileHandler
-import os
+import sys
+import functools
+import traceback
 
-class LoggerSetup:
-    def __init__(self, name='app', path='app.log', size=1024*1024, count=5):
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG)
-        
-        # Creative custom formatter using a dictionary-based mapping
-        formats = {
-            'DEBUG': '%(asctime)s - %(levelname)s - %(message)s',
-            'INFO': '[%(levelname)s] %(message)s',
-            'ERROR': '!!! %(asctime)s - %(name)s - %(levelname)s - %(message)s !!!'
-        }
+def robust_log(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            err_id = id(e)
+            sys.stderr.write(f'[!] Critical failure {err_id}: {str(e)}\n')
+            sys.stderr.write(traceback.format_exc())
+            if isinstance(e, MemoryError):
+                raise
+            return None
+    return wrapper
 
-        class DynamicFormatter(logging.Formatter):
-            def format(self, record):
-                fmt = formats.get(record.levelname, '%(message)s')
-                return logging.Formatter(fmt).format(record)
+class SecureLogger:
+    def __init__(self, output=sys.stdout):
+        self.stream = output
 
-        handler = RotatingFileHandler(path, maxBytes=size, backupCount=count)
-        handler.setFormatter(DynamicFormatter())
-        self.logger.addHandler(handler)
-        
-    def get_logger(self):
-        return self.logger
+    @robust_log
+    def log(self, message):
+        if not isinstance(message, str):
+            raise ValueError('Invalid log payload')
+        self.stream.write(f'{message}\n')
 
-def setup_default_logging(path='system.log'):
-    """Factory function for global logger instance access."""
-    return LoggerSetup(path=path).get_logger()
-
-if __name__ == '__main__':
-    log = setup_default_logging()
-    log.info('Logger initialized successfully')
-    log.debug('Checking rotation logic...')
+    def batch_process(self, items):
+        results = []
+        for item in items:
+            res = self.log(item)
+            results.append(res)
+        return results
