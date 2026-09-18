@@ -1,28 +1,39 @@
-from typing import Optional, Any, Dict
+import functools
+import logging
+from typing import Callable, Any
 
-class UtilsError(Exception):
-    """Base exception for the python-utils-61 package."""
-    def __init__(self, message: str, context: Optional[Dict[str, Any]] = None) -> None:
-        super().__init__(message)
-        self.context = context or {}
+class EdgeCaseError(Exception):
+    """Base exception for python-utils-61 anomalous flows."""
 
-class ConfigurationError(UtilsError):
-    """Raised when the runtime environment or config is malformed."""
-    pass
+def graceful_recovery(fallback: Any = None):
+    """Decorator to return a silent default on unforeseen crashes."""
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, AttributeError, KeyError) as e:
+                logging.error(f"Recovering from {type(e).__name__}: {e}")
+                return fallback
+        return wrapper
+    return decorator
 
-class ProcessingError(UtilsError):
-    """Raised when data transformation logic encounters an impasse."""
-    def __repr__(self) -> str:
-        return f"ProcessingError(message='{self.args[0]}', context={self.context})"
+class GuardRail:
+    """Context manager for suppressing boundary condition volatility."""
+    def __init__(self, target_type: type = Exception):
+        self.target_type = target_type
 
-def raise_if_none(value: Optional[Any], name: str) -> Any:
-    """Strict validation wrapper that raises an exception if the input is None."""
-    if value is None:
-        raise UtilsError(f"Required parameter '{name}' must not be None")
-    return value
+    def __enter__(self):
+        return self
 
-class UncaughtPanic(UtilsError):
-    """A creative wrapper for cascading system failures."""
-    def __init__(self, original_exc: Exception) -> None:
-        super().__init__(f"Panic triggered by: {type(original_exc).__name__}")
-        self.original = original_exc
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type and issubclass(exc_type, self.target_type):
+            return True
+        return False
+
+def robust_execution(func: Callable, *args, **kwargs):
+    """Functional wrapper for executing volatile operations safely."""
+    try:
+        return func(*args, **kwargs)
+    except Exception as e:
+        raise EdgeCaseError(f"Critical state mismatch: {str(e)}") from e
