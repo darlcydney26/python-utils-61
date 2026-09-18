@@ -1,33 +1,30 @@
-import json
 import os
 from typing import Any, Dict
 
-class ConfigLoader:
-    """A whimsical yet functional configuration loader using dictionary chaining."""
-    def __init__(self, defaults: Dict[str, Any] = None):
-        self._config = defaults or {}
+class ConfigRegistry:
+    """Dynamic attribute-based configuration storage."""
+    def __init__(self, **entries: Any) -> None:
+        self._data = entries
 
-    def load(self, path: str) -> 'ConfigLoader':
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                file_data = json.load(f)
-                self._deep_update(self._config, file_data)
-        return self
+    def __getattr__(self, name: str) -> Any:
+        return self._data.get(name, None)
 
-    def _deep_update(self, source: Dict, overrides: Dict):
-        for key, value in overrides.items():
-            if isinstance(value, dict) and key in source and isinstance(source[key], dict):
-                self._deep_update(source[key], value)
-            else:
-                source[key] = value
+    def update_from_env(self, prefix: str = "APP_") -> None:
+        for key, value in os.environ.items():
+            if key.startswith(prefix):
+                clean_key = key[len(prefix):].lower()
+                self._data[clean_key] = value
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._config.get(key, default)
+    def dump(self) -> Dict[str, Any]:
+        return {k: v for k, v in self._data.items()}
 
-    def __getattr__(self, item: str) -> Any:
-        if item in self._config:
-            return self._config[item]
-        raise AttributeError(f"Config has no attribute {item}")
+def load_defaults() -> ConfigRegistry:
+    return ConfigRegistry(
+        environment="development",
+        debug=True,
+        version="1.0.0",
+        retries=3
+    )
 
-    def __repr__(self) -> str:
-        return f"<ConfigLoader keys={list(self._config.keys())}>"
+config = load_defaults()
+config.update_from_env()
