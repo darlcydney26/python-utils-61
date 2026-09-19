@@ -1,37 +1,33 @@
-import functools
-import logging
-from typing import Callable, Any
+import sys
+from typing import Any, Callable, Generator, Iterable, Dict
 
-class ResilienceOrchestrator:
-    def __init__(self, logger: logging.Logger = None):
-        self.logger = logger or logging.getLogger(__name__)
+class ValidationError(ValueError):
+    pass
 
-    def __call__(self, func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
+class LoopHandler:
+    def __init__(self, schemas: Dict[str, Callable[[Any], bool]]):
+        self.schemas = schemas
+
+    def process(self, items: Iterable[Dict[str, Any]]) -> Generator[Dict[str, Any], None, None]:
+        for index, item in enumerate(items):
             try:
-                return func(*args, **kwargs)
-            except (TypeError, ValueError, AttributeError) as e:
-                self.logger.error(f"schema mismatch or value corruption: {e}")
-                return None
-            except Exception as e:
-                self.logger.critical(f"unhandled cosmic ray incident: {e}")
-                raise
-        return wrapper
-
-def silent_fallback(default_value: Any) -> Callable:
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return func(*args, **kwargs)
-            except Exception:
-                return default_value
-        return wrapper
-    return decorator
-
-@ResilienceOrchestrator()
-def process_payload(data: dict) -> int:
-    if not isinstance(data, dict):
-        raise TypeError("input must be a dict")
-    return int(data['value']) * 2
+                if not isinstance(item, dict):
+                    raise ValidationError('Item is not a dictionary structure')
+                
+                for key, validator in self.schemas.items():
+                    if key not in item:
+                        raise ValidationError(f'Missing required field: {key}')
+                    if not validator(item[key]):
+                        raise ValidationError(f'Validation failed for \'{key}\': {item[key]}')
+                
+                yield {
+                    'id': index,
+                    'payload': {k: v for k, v in item.items() if not k.startswith('_')},
+                    'valid': True
+                }
+            except ValidationError as exc:
+                yield {
+                    'id': index,
+                    'error': str(exc),
+                    'valid': False
+                }
