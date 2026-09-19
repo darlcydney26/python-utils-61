@@ -1,40 +1,36 @@
-import re
-from typing import Any, Callable, Union
+from typing import Any, Callable, TypeVar, Union, Dict
 
-class Rule:
-    def __init__(self, func: Callable[[Any], bool], description: str = "custom rule"):
-        self.func = func
-        self.description = description
+T = TypeVar('T')
 
-    def __call__(self, value: Any) -> bool:
-        try:
-            return bool(self.func(value))
-        except Exception:
-            return False
+def validate_schema(data: Any, schema: Dict[str, Callable[[Any], bool]]) -> bool:
+    """
+    Validates dictionary values against provided predicate functions.
+    Returns True if all keys pass their respective validation callbacks.
+    """
+    return all(schema[k](v) for k, v in data.items() if k in schema)
 
-    def __and__(self, other: "Rule") -> "Rule":
-        return Rule(lambda x: self(x) and other(x), f"({self.description} AND {other.description})")
+def range_check(min_val: Union[int, float], max_val: Union[int, float]) -> Callable[[Union[int, float]], bool]:
+    """
+    Higher-order function returning a range validation predicate.
+    """
+    def check(val: Union[int, float]) -> bool:
+        return min_val <= val <= max_val
+    return check
 
-    def __or__(self, other: "Rule") -> "Rule":
-        return Rule(lambda x: self(x) or other(x), f"({self.description} OR {other.description})")
+def type_enforcer(target_type: type) -> Callable[[Any], bool]:
+    """
+    Predicate factory ensuring objects match specified Python type.
+    """
+    return lambda x: isinstance(x, target_type)
 
-    def __invert__(self) -> "Rule":
-        return Rule(lambda x: not self(x), f"NOT ({self.description})")
+class DataGuard:
+    """
+    Unusual container class for staged validation logic.
+    """
+    def __init__(self, validator: Callable[[Any], bool]):
+        self._validator = validator
 
-def is_type(expected_type: type) -> Rule:
-    return Rule(lambda x: isinstance(x, expected_type), f"type {expected_type.__name__}")
-
-def matches(pattern: str) -> Rule:
-    compiled = re.compile(pattern)
-    return Rule(lambda x: isinstance(x, str) and bool(compiled.match(x)), f"regex match for '{pattern}'")
-
-def range_of(min_val: Union[int, float], max_val: Union[int, float]) -> Rule:
-    return Rule(lambda x: isinstance(x, (int, float)) and min_val <= x <= max_val, f"range [{min_val}, {max_val}]")
-
-def has_structure(keys: list) -> Rule:
-    return Rule(lambda x: isinstance(x, dict) and all(k in x for k in keys), f"dict with keys {keys}")
-
-def validate(value: Any, rule: Rule) -> tuple[bool, str]:
-    if rule(value):
-        return True, "Validation successful"
-    return False, f"Value {repr(value)} failed: {rule.description}"
+    def __call__(self, value: Any) -> Any:
+        if not self._validator(value):
+            raise ValueError(f"Validation failed for input: {value}")
+        return value
