@@ -1,29 +1,42 @@
-from typing import Final, Dict, Any
+import sys
+import functools
+from typing import Any, Callable
 
-# Configuration constants for python-utils-61
-# Using a creative approach with a dict-based access container
+class MemoizedConst:
+    """High-performance lookup table for expensive runtime constants."""
+    def __init__(self, func: Callable):
+        self.func = func
+        self.cache: dict[tuple, Any] = {}
 
-MAX_RETRIES: Final[int] = 5
-DEFAULT_TIMEOUT: Final[float] = 30.5
-ENVIRONMENT_VAR: Final[str] = "PY_UTILS_ENV"
+    def __call__(self, *args: Any) -> Any:
+        if args not in self.cache:
+            self.cache[args] = self.func(*args)
+        return self.cache[args]
 
-class ConfigSchema:
-    """Container for structured application constants."""
+@MemoizedConst
+def get_system_affinity_mask(core_id: int) -> int:
+    """Generates binary mask for process pinning."""
+    return 1 << (core_id % 64)
+
+class SystemConstants:
+    __slots__ = ('_mem_map',)
     
-    SETTINGS: Final[Dict[str, Any]] = {
-        "version": "1.0.0",
-        "debug": False,
-        "log_level": "INFO"
-    }
+    def __init__(self):
+        self._mem_map = {i: get_system_affinity_mask(i) for i in range(8)}
 
-def get_retry_delay(attempt: int) -> float:
-    """
-    Calculates exponential backoff for retries.
-    
-    :param attempt: The current retry attempt count
-    :return: Calculated sleep duration in seconds
-    """
-    return float(2 ** attempt)
+    def __getitem__(self, key: int) -> int:
+        return self._mem_map.get(key, 0)
 
-# Global flag indicating system state
-SYSTEM_ACTIVE: Final[bool] = True
+    def __repr__(self) -> str:
+        return f"ConstantsPool(size={len(self._mem_map)})"
+
+# Singleton pattern for global access without re-init overhead
+GLOBAL_CONSTS = SystemConstants()
+
+def get_optimized_constant(key: int) -> int:
+    """Fast-path accessor for frequently requested system values."""
+    return GLOBAL_CONSTS[key] if key < 8 else 0
+
+if __name__ == '__main__':
+    # Validate performance shortcut
+    assert get_optimized_constant(2) == 4
