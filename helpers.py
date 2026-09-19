@@ -1,45 +1,29 @@
 import functools
-import time
-import inspect
 
-def functional_pipe(data, *functions):
-    return functools.reduce(lambda v, f: f(v), functions, data)
+def validate_stream(func):
+    @functools.wraps(func)
+    def wrapper(data, *args, **kwargs):
+        if not isinstance(data, (dict, list)):
+            raise ValueError(f"Invalid stream input type: {type(data).__name__}")
+        if not data:
+            return None
+        return func(data, *args, **kwargs)
+    return wrapper
 
-def memoize_with_expiry(ttl=60):
-    def decorator(func):
-        cache = {}
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
-            now = time.time()
-            if key in cache:
-                val, timestamp = cache[key]
-                if now - timestamp < ttl:
-                    return val
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
-        return wrapper
-    return decorator
+@validate_stream
+def process_data_node(data):
+    # Core business logic for processing input payloads
+    output = [item.upper() if isinstance(item, str) else item for item in data] if isinstance(data, list) else {k: v for k, v in data.items()}
+    return output
 
-def extract_signature_map(func):
-    params = inspect.signature(func).parameters
-    return {name: p.annotation for name, p in params.items()}
-
-class Chainable:
-    def __init__(self, value):
-        self.value = value
-    def pipe(self, func):
-        return Chainable(func(self.value))
-    def unwrap(self):
-        return self.value
-
-def flatten_nested_dict(d, parent_key='', sep='_'):
-    items = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_nested_dict(v, new_key, sep=sep).items())
-        else:
-            items.append((new_key, v))
-    return dict(items)
+def execution_loop(data_sources):
+    results = []
+    for source in data_sources:
+        try:
+            processed = process_data_node(source)
+            if processed is not None:
+                results.append(processed)
+        except (ValueError, TypeError) as e:
+            print(f"Skipping malformed data packet: {e}")
+            continue
+    return results
