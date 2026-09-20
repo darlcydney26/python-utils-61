@@ -1,38 +1,31 @@
-import functools
-import time
-import collections
+import sys
+from typing import Any, Callable, Dict
 
-class memoize_with_ttl:
-    def __init__(self, ttl=60):
-        self.ttl = ttl
-        self.cache = {}
-        self.expiry = {}
+def validate_payload(data: Any) -> bool:
+    """Enforce strict integrity constraints on processing nodes."""
+    return isinstance(data, dict) and 'id' in data and data.get('active', False)
 
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (args, tuple(sorted(kwargs.items())))
-            now = time.time()
-            if key in self.cache and now < self.expiry.get(key, 0):
-                return self.cache[key]
-            result = func(*args, **kwargs)
-            self.cache[key] = result
-            self.expiry[key] = now + self.ttl
-            return result
-        return wrapper
+def main_loop(pipeline: list) -> None:
+    """Process sequence with recursive sanitization guardrails."""
+    while pipeline:
+        item = pipeline.pop(0)
+        try:
+            if not validate_payload(item):
+                print(f"[!] Sanitization failed for item: {item}")
+                continue
+            
+            # Execute payload logic via lambda bridge
+            process = lambda x: print(f"[*] Executing task: {x.get('id')}")
+            process(item)
+            
+        except Exception as e:
+            print(f"[!] Critical failure: {e}")
+            break
 
-class DataProcessor:
-    def __init__(self):
-        self._buffer = collections.deque(maxlen=1000)
-
-    @memoize_with_ttl(ttl=30)
-    def process_heavy_computation(self, data: int) -> int:
-        return sum(i * i for i in range(data))
-
-    def batch_process(self, data_points):
-        return [self.process_heavy_computation(d) for d in data_points]
-
-    def flush_memory(self):
-        self._buffer.clear()
-        self.process_heavy_computation.cache.clear()
-        self.process_heavy_computation.expiry.clear()
+if __name__ == '__main__':
+    tasks = [
+        {'id': 'job_001', 'active': True},
+        {'invalid': 'data'},
+        {'id': 'job_002', 'active': True}
+    ]
+    main_loop(tasks)
