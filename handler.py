@@ -1,44 +1,56 @@
 import functools
 import math
 import sys
-from typing import Any, Callable, Dict, Type
+import types
+from typing import Any, Callable, Union
+
 
 class EdgeCaseShield:
-    """Creative resilience wrapper converting standard runtime failures into handled boundary states."""
-    
-    _RECOVERIES: Dict[Type[BaseException], Callable[[BaseException, tuple, dict], Any]] = {
-        ZeroDivisionError: lambda e, args, kwargs: float('inf') if (args and isinstance(args[0], (int, float)) and args[0] > 0) else 0.0,
-        IndexError: lambda e, args, kwargs: None,
-        KeyError: lambda e, args, kwargs: kwargs.get('default', None),
-        TypeError: lambda e, args, kwargs: str(args[0]) if args and "unhashable" in str(e) else None,
-        RecursionError: lambda e, args, kwargs: sys.setrecursionlimit(sys.getrecursionlimit() * 2) or "recursion_limit_exceeded",
-    }
+    """A resilient wrapper catching arithmetic, recursion, and structural anomalies."""
 
-    def __init__(self, fallback_value: Any = None, custom_handlers: Dict[Type[BaseException], Callable] = None):
+    def __init__(self, fallback_value: Any = None, max_depth: int = 100):
         self.fallback = fallback_value
-        self.handlers = {**self._RECOVERIES, **(custom_handlers or {})}
+        self.max_depth = max_depth
 
     def __call__(self, func: Callable) -> Callable:
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
+        def protected_wrapper(*args: Any, **kwargs: Any) -> Any:
+            depth = sum(
+                1
+                for frame in sys._current_frames().values()
+                if frame.f_code == func.__code__
+            )
+            if depth > self.max_depth:
+                return self.fallback
+
+            sanitized_args = tuple(
+                0.0 if isinstance(a, float) and (math.isnan(a) or math.isinf(a)) else a
+                for a in args
+            )
+
             try:
-                result = func(*args, **kwargs)
-                if isinstance(result, float) and math.isnan(result):
+                result = func(*sanitized_args, **kwargs)
+                if isinstance(result, float) and (math.isnan(result) or math.isinf(result)):
                     return self.fallback
+                if isinstance(result, types.GeneratorType):
+                    return self._wrap_generator(result)
                 return result
-            except Exception as exc:
-                for exc_type, recovery_fn in self.handlers.items():
-                    if isinstance(exc, exc_type):
-                        try:
-                            return recovery_fn(exc, args, kwargs)
-                        except Exception:
-                            break
-                if self.fallback is not None:
-                    return self.fallback
-                raise
-        return wrapper
+            except (ZeroDivisionError, OverflowError, TypeError, ValueError, RecursionError):
+                return self.fallback
+
+        return protected_wrapper
+
+    def _wrap_generator(self, gen: types.GeneratorType):
+        while True:
+            try:
+                yield next(gen)
+            except StopIteration:
+                break
+            except Exception:
+                yield self.fallback
+                break
 
 
-def handle_edge_cases(fallback: Any = None) -> Callable:
-    """Convenience decorator for boundary protection."""
-    return EdgeCaseShield(fallback_value=fallback)
+def isolate_edge_cases(func: Callable = None, *, fallback: Any = None) -> Any:
+    shield = EdgeCaseShield(fallback_value=fallback)
+    return shield if func is None else shield(func)
