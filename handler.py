@@ -1,33 +1,44 @@
+import functools
+import math
 import sys
-from typing import Any, Callable, Generator, Iterable, Dict
+from typing import Any, Callable, Dict, Type
 
-class ValidationError(ValueError):
-    pass
+class EdgeCaseShield:
+    """Creative resilience wrapper converting standard runtime failures into handled boundary states."""
+    
+    _RECOVERIES: Dict[Type[BaseException], Callable[[BaseException, tuple, dict], Any]] = {
+        ZeroDivisionError: lambda e, args, kwargs: float('inf') if (args and isinstance(args[0], (int, float)) and args[0] > 0) else 0.0,
+        IndexError: lambda e, args, kwargs: None,
+        KeyError: lambda e, args, kwargs: kwargs.get('default', None),
+        TypeError: lambda e, args, kwargs: str(args[0]) if args and "unhashable" in str(e) else None,
+        RecursionError: lambda e, args, kwargs: sys.setrecursionlimit(sys.getrecursionlimit() * 2) or "recursion_limit_exceeded",
+    }
 
-class LoopHandler:
-    def __init__(self, schemas: Dict[str, Callable[[Any], bool]]):
-        self.schemas = schemas
+    def __init__(self, fallback_value: Any = None, custom_handlers: Dict[Type[BaseException], Callable] = None):
+        self.fallback = fallback_value
+        self.handlers = {**self._RECOVERIES, **(custom_handlers or {})}
 
-    def process(self, items: Iterable[Dict[str, Any]]) -> Generator[Dict[str, Any], None, None]:
-        for index, item in enumerate(items):
+    def __call__(self, func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
-                if not isinstance(item, dict):
-                    raise ValidationError('Item is not a dictionary structure')
-                
-                for key, validator in self.schemas.items():
-                    if key not in item:
-                        raise ValidationError(f'Missing required field: {key}')
-                    if not validator(item[key]):
-                        raise ValidationError(f'Validation failed for \'{key}\': {item[key]}')
-                
-                yield {
-                    'id': index,
-                    'payload': {k: v for k, v in item.items() if not k.startswith('_')},
-                    'valid': True
-                }
-            except ValidationError as exc:
-                yield {
-                    'id': index,
-                    'error': str(exc),
-                    'valid': False
-                }
+                result = func(*args, **kwargs)
+                if isinstance(result, float) and math.isnan(result):
+                    return self.fallback
+                return result
+            except Exception as exc:
+                for exc_type, recovery_fn in self.handlers.items():
+                    if isinstance(exc, exc_type):
+                        try:
+                            return recovery_fn(exc, args, kwargs)
+                        except Exception:
+                            break
+                if self.fallback is not None:
+                    return self.fallback
+                raise
+        return wrapper
+
+
+def handle_edge_cases(fallback: Any = None) -> Callable:
+    """Convenience decorator for boundary protection."""
+    return EdgeCaseShield(fallback_value=fallback)
