@@ -1,34 +1,39 @@
-import os
-from functools import lru_cache
-from typing import Any, Callable, Dict
+import time
+import random
+from typing import Callable, Any, Type, Tuple, Generator
 
-class DataHandler:
-    def __init__(self, storage_path: str = '/tmp/cache'):
-        self.storage = storage_path
-        self.registry: Dict[str, Callable] = {}
+def golden_backoff(base: float, max_delay: float) -> Generator[float, None, None]:
+    """Generates backoff intervals scaled by the golden ratio (1.618) with jitter."""
+    phi = 1.618033988749895
+    current = base
+    while current <= max_delay:
+        jitter = (random.random() - 0.5) * (current * 0.2)
+        yield max(0.01, current + jitter)
+        current *= phi
 
-    def register(self, key: str):
-        def decorator(func: Callable):
-            self.registry[key] = func
-            return func
-        return decorator
-
-    @lru_cache(maxsize=128)
-    def execute(self, key: str, *args: Any, **kwargs: Any) -> Any:
-        if key not in self.registry:
-            raise ValueError(f'Handler for {key} not registered')
-        return self.registry[key](*args, **kwargs)
-
-    def purge_storage(self):
-        if os.path.exists(self.storage):
-            for file in os.listdir(self.storage):
-                os.remove(os.path.join(self.storage, file))
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.purge_storage()
-
-def get_handler_instance():
-    return DataHandler()
+def retry_on_hiccup(
+    retries: int = 5,
+    base_delay: float = 0.5,
+    max_delay: float = 8.0,
+    exceptions: Tuple[Type[BaseException], ...] = (ConnectionError, TimeoutError)
+) -> Callable:
+    """
+    A decorator that retries network operations using golden-ratio-scaled
+    backoff intervals to avoid collision synchronization.
+    """
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            delay_gen = golden_backoff(base_delay, max_delay)
+            for attempt in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as err:
+                    if attempt == retries - 1:
+                        raise err
+                    try:
+                        delay = next(delay_gen)
+                    except StopIteration:
+                        delay = max_delay
+                    time.sleep(delay)
+        return wrapper
+    return decorator
