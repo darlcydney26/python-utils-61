@@ -1,42 +1,40 @@
-import sys
-import functools
-from typing import Any, Callable
+from typing import Final, Any, Dict
+from collections import UserDict
 
-class MemoizedConst:
-    """High-performance lookup table for expensive runtime constants."""
-    def __init__(self, func: Callable):
-        self.func = func
-        self.cache: dict[tuple, Any] = {}
+class DataRegistry(UserDict):
+    """
+    A container that acts as a read-only registry
+    with dictionary-like attribute access.
+    """
+    def __init__(self, data: Dict[str, Any] = None):
+        super().__init__(data or {})
 
-    def __call__(self, *args: Any) -> Any:
-        if args not in self.cache:
-            self.cache[args] = self.func(*args)
-        return self.cache[args]
+    def __getattr__(self, item: str) -> Any:
+        if item in self.data:
+            return self.data[item]
+        raise AttributeError(f"Registry has no key: {item}")
 
-@MemoizedConst
-def get_system_affinity_mask(core_id: int) -> int:
-    """Generates binary mask for process pinning."""
-    return 1 << (core_id % 64)
+    def __setattr__(self, key: str, value: Any) -> None:
+        if key == 'data':
+            super().__setattr__(key, value)
+        else:
+            raise TypeError("Registry keys are immutable after initialization")
 
-class SystemConstants:
-    __slots__ = ('_mem_map',)
-    
-    def __init__(self):
-        self._mem_map = {i: get_system_affinity_mask(i) for i in range(8)}
+DEFAULT_CONFIG: Final = DataRegistry({
+    "TIMEOUT": 30,
+    "RETRY_LIMIT": 3,
+    "CACHE_ENABLED": True,
+    "VERSION": "1.0.0"
+})
 
-    def __getitem__(self, key: int) -> int:
-        return self._mem_map.get(key, 0)
+ERROR_CODES: Final[Dict[str, int]] = {
+    "SUCCESS": 200,
+    "BAD_REQUEST": 400,
+    "UNAUTHORIZED": 401,
+    "FORBIDDEN": 403,
+    "NOT_FOUND": 404,
+    "SERVER_ERROR": 500
+}
 
-    def __repr__(self) -> str:
-        return f"ConstantsPool(size={len(self._mem_map)})"
-
-# Singleton pattern for global access without re-init overhead
-GLOBAL_CONSTS = SystemConstants()
-
-def get_optimized_constant(key: int) -> int:
-    """Fast-path accessor for frequently requested system values."""
-    return GLOBAL_CONSTS[key] if key < 8 else 0
-
-if __name__ == '__main__':
-    # Validate performance shortcut
-    assert get_optimized_constant(2) == 4
+def get_status_message(code: int) -> str:
+    return {v: k for k, v in ERROR_CODES.items()}.get(code, "UNKNOWN_ERROR")
