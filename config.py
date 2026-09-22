@@ -1,30 +1,43 @@
-import os
-from typing import Any, Dict
+import functools
+import threading
 
-class ConfigRegistry:
-    """Dynamic attribute-based configuration storage."""
-    def __init__(self, **entries: Any) -> None:
-        self._data = entries
+class ConfigCache:
+    _storage = {}
+    _lock = threading.Lock()
 
-    def __getattr__(self, name: str) -> Any:
-        return self._data.get(name, None)
+    @classmethod
+    def memoize_config(cls, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (func.__name__, args, frozenset(kwargs.items()))
+            with cls._lock:
+                if key not in cls._storage:
+                    cls._storage[key] = func(*args, **kwargs)
+                return cls._storage[key]
+        return wrapper
 
-    def update_from_env(self, prefix: str = "APP_") -> None:
-        for key, value in os.environ.items():
-            if key.startswith(prefix):
-                clean_key = key[len(prefix):].lower()
-                self._data[clean_key] = value
+class ConfigManager:
+    def __init__(self, raw_data):
+        self._raw = raw_data
 
-    def dump(self) -> Dict[str, Any]:
-        return {k: v for k, v in self._data.items()}
+    @ConfigCache.memoize_config
+    def get_setting(self, key, default=None):
+        return self._raw.get(key, default)
 
-def load_defaults() -> ConfigRegistry:
-    return ConfigRegistry(
-        environment="development",
-        debug=True,
-        version="1.0.0",
-        retries=3
-    )
+    def clear_cache(self):
+        with ConfigCache._lock:
+            ConfigCache._storage.clear()
 
-config = load_defaults()
-config.update_from_env()
+    @staticmethod
+    def singleton_instance(cls):
+        instances = {}
+        def get_instance(*args, **kwargs):
+            if cls not in instances:
+                instances[cls] = cls(*args, **kwargs)
+            return instances[cls]
+        return get_instance
+
+@ConfigManager.singleton_instance
+class GlobalConfig(ConfigManager):
+    def __init__(self):
+        super().__init__({'timeout': 30, 'retries': 3})
