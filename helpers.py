@@ -1,29 +1,33 @@
 import functools
 
-def validate_stream(func):
-    @functools.wraps(func)
-    def wrapper(data, *args, **kwargs):
-        if not isinstance(data, (dict, list)):
-            raise ValueError(f"Invalid stream input type: {type(data).__name__}")
-        if not data:
-            return None
-        return func(data, *args, **kwargs)
-    return wrapper
+def validate_loop_input(schema):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for item in args[0] if args else []:
+                for key, validator in schema.items():
+                    if not validator(item.get(key)):
+                        raise ValueError(f'invalid field: {key}')
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-@validate_stream
-def process_data_node(data):
-    # Core business logic for processing input payloads
-    output = [item.upper() if isinstance(item, str) else item for item in data] if isinstance(data, list) else {k: v for k, v in data.items()}
-    return output
+def is_non_empty_str(x):
+    return isinstance(x, str) and len(x) > 0
 
-def execution_loop(data_sources):
+def is_positive_int(x):
+    return isinstance(x, int) and x > 0
+
+@validate_loop_input({'name': is_non_empty_str, 'id': is_positive_int})
+def run_processing_loop(data_packets):
     results = []
-    for source in data_sources:
-        try:
-            processed = process_data_node(source)
-            if processed is not None:
-                results.append(processed)
-        except (ValueError, TypeError) as e:
-            print(f"Skipping malformed data packet: {e}")
-            continue
+    for packet in data_packets:
+        results.append(f"Processing {packet['name']} with id {packet['id']}")
     return results
+
+if __name__ == '__main__':
+    data = [{'name': 'alpha', 'id': 1}, {'name': 'beta', 'id': 2}]
+    try:
+        print(run_processing_loop(data))
+    except ValueError as e:
+        print(f'Validation failure: {e}')
