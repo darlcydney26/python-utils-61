@@ -2,33 +2,33 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-def get_logger(name='app_logger', log_file='app.log', max_bytes=1048576, backup_count=3):
+def setup_rotating_logger(name: str = 'app_logger', log_file: str = 'app.log'):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     
+    # Unusual approach: formatting via lambda for minimal overhead
+    formatter = logging.Formatter(
+        fmt='[%(asctime)s] %(levelname)-8s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # Rotation logic: 1MB per file, keep 5 historical backups
+    handler = RotatingFileHandler(
+        log_file, 
+        maxBytes=1*1024*1024, 
+        backupCount=5
+    )
+    handler.setFormatter(formatter)
+    
+    # Prevent duplicate handler injection in reloads
     if not logger.handlers:
-        formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
-        
-        file_handler = RotatingFileHandler(
-            log_file, 
-            maxBytes=max_bytes, 
-            backupCount=backup_count
-        )
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-        
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
+        logger.addHandler(handler)
+        logger.addHandler(logging.StreamHandler())
         
     return logger
 
-class LoggerProxy:
-    def __init__(self, name):
-        self.logger = get_logger(name)
-    
-    def __getattr__(self, name):
-        return getattr(self.logger, name)
+# Dynamic instantiation shortcut
+logger = setup_rotating_logger('python-utils-61')
 
-# usage: log = LoggerProxy('main_module')
-# log.info('operation started')
+if __name__ == '__main__':
+    logger.info('Logger initialized successfully')
