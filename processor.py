@@ -1,50 +1,52 @@
-import inspect
-from typing import Any, Callable, Generator, Generic, Iterable, TypeVar, Union
+from typing import Any, Callable, Generator, Iterable
+import math
 
-T = TypeVar("T")
-R = TypeVar("R")
+class Rule:
+    def __init__(self, predicate: Callable[[Any], bool], message: str):
+        self.predicate = predicate
+        self.message = message
 
+    def __or__(self, other: "Rule | CompositeRule") -> "CompositeRule":
+        rules = [self]
+        if isinstance(other, CompositeRule):
+            rules.extend(other.rules)
+        else:
+            rules.append(other)
+        return CompositeRule(rules)
 
-class PipeProcessor(Generic[T]):
-    """An unconventional stream processor that allows piping with the OR operator.
+class CompositeRule:
+    def __init__(self, rules: list[Rule]):
+        self.rules = rules
 
-    Utilizes generator-based pipeline execution and automatic argument unpacking
-    via function signature introspection.
-    """
+def is_type(t: type) -> Rule:
+    return Rule(lambda x: isinstance(x, t), f"must be type {t.__name__}")
 
-    def __init__(self, iterable: Iterable[T]) -> None:
-        self.stream: Iterable[T] = iterable
+def is_positive() -> Rule:
+    return Rule(lambda x: isinstance(x, (int, float)) and x > 0 and not math.isnan(x), "must be positive number")
 
-    def __or__(self, func: Callable[..., R]) -> "PipeProcessor[R]":
-        """Pipes the current stream elements through the provided function.
+class ProcessingEngine:
+    def __init__(self, schema: dict[str, Rule | CompositeRule]):
+        self.schema = schema
 
-        Allows seamless cascading using the bitwise OR operator.
-        """
-        return PipeProcessor(self._apply(func))
+    def process_records(self, records: Iterable[dict[str, Any]]) -> Generator[dict[str, Any], None, None]:
+        for idx, record in enumerate(records):
+            if not isinstance(record, dict):
+                yield {"status": "error", "index": idx, "reasons": ["record is not a dictionary"]}
+                continue
 
-    def _apply(self, func: Callable[..., R]) -> Generator[R, None, None]:
-        """Generator applying the callable, automatically unpacking iterables if needed."""
-        try:
-            sig = inspect.signature(func)
-            req_params = sum(
-                1
-                for p in sig.parameters.values()
-                if p.default == inspect.Parameter.empty
-                and p.kind
-                not in (
-                    inspect.Parameter.VAR_POSITIONAL,
-                    inspect.Parameter.VAR_KEYWORD,
-                )
-            )
-        except (ValueError, TypeError):
-            req_params = 1
+            violations = []
+            for field, checker in self.schema.items():
+                if field not in record:
+                    violations.append(f"field '{field}' is missing")
+                    continue
 
-        for item in self.stream:
-            if req_params > 1 and isinstance(item, (tuple, list)):
-                yield func(*item)  # type: ignore
+                val = record[field]
+                rules = checker.rules if isinstance(checker, CompositeRule) else [checker]
+                for rule in rules:
+                    if not rule.predicate(val):
+                        violations.append(f"field '{field}': {rule.message}")
+
+            if violations:
+                yield {"status": "rejected", "index": idx, "reasons": violations}
             else:
-                yield func(item)
-
-    def consume(self) -> list[T]:
-        """Consumes the underlying iterator and returns all elements as a list."""
-        return list(self.stream)
+                yield {"status": "accepted", "index": idx, "data": record}
