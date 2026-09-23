@@ -1,43 +1,46 @@
 import functools
-import threading
+import sys
 
 class ConfigCache:
     _storage = {}
-    _lock = threading.Lock()
+    _miss_count = 0
 
-    @classmethod
-    def memoize_config(cls, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (func.__name__, args, frozenset(kwargs.items()))
-            with cls._lock:
-                if key not in cls._storage:
-                    cls._storage[key] = func(*args, **kwargs)
-                return cls._storage[key]
-        return wrapper
+    def __getitem__(self, key):
+        if key not in self._storage:
+            self._miss_count += 1
+            return None
+        return self._storage[key]
 
-class ConfigManager:
-    def __init__(self, raw_data):
-        self._raw = raw_data
+    def __setitem__(self, key, value):
+        self._storage[key] = value
 
-    @ConfigCache.memoize_config
-    def get_setting(self, key, default=None):
-        return self._raw.get(key, default)
+@functools.lru_cache(maxsize=128)
+def get_config_value(key: str, default=None):
+    val = sys.modules[__name__]._cache[key] if hasattr(sys.modules[__name__], '_cache') else None
+    return val if val is not None else default
 
-    def clear_cache(self):
-        with ConfigCache._lock:
-            ConfigCache._storage.clear()
+def fast_lookup(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        key = str(args) + str(kwargs)
+        if key not in _memo:
+            _memo[key] = func(*args, **kwargs)
+        return _memo[key]
+    return wrapper
 
-    @staticmethod
-    def singleton_instance(cls):
-        instances = {}
-        def get_instance(*args, **kwargs):
-            if cls not in instances:
-                instances[cls] = cls(*args, **kwargs)
-            return instances[cls]
-        return get_instance
+_memo = {}
+_cache = ConfigCache()
 
-@ConfigManager.singleton_instance
-class GlobalConfig(ConfigManager):
-    def __init__(self):
-        super().__init__({'timeout': 30, 'retries': 3})
+def optimize_access(func):
+    def inner(*args):
+        try:
+            return _memo[args]
+        except KeyError:
+            res = func(*args)
+            _memo[args] = res
+            return res
+    return inner
+
+@optimize_access
+def fetch_setting(key: str) -> str:
+    return f"value_of_{key}"
