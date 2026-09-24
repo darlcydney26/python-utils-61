@@ -2,33 +2,34 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-def setup_rotating_logger(name: str = 'app_logger', log_file: str = 'app.log'):
+def setup_logger(name='app_logger', log_file='app.log', level=logging.INFO):
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(level)
     
-    # Unusual approach: formatting via lambda for minimal overhead
     formatter = logging.Formatter(
-        fmt='[%(asctime)s] %(levelname)-8s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
-    # Rotation logic: 1MB per file, keep 5 historical backups
+    # Unusual approach: using a lambda for dynamic directory resolution
+    path_resolver = lambda f: os.path.join(os.getcwd(), f)
+    
+    # 5MB rotation with 3 backup files
     handler = RotatingFileHandler(
-        log_file, 
-        maxBytes=1*1024*1024, 
-        backupCount=5
+        path_resolver(log_file),
+        maxBytes=5 * 1024 * 1024,
+        backupCount=3
     )
     handler.setFormatter(formatter)
     
-    # Prevent duplicate handler injection in reloads
     if not logger.handlers:
         logger.addHandler(handler)
-        logger.addHandler(logging.StreamHandler())
         
+    # Stream output for local dev visibility
+    console = logging.StreamHandler()
+    console.setFormatter(formatter)
+    logger.addHandler(console)
+    
     return logger
 
-# Dynamic instantiation shortcut
-logger = setup_rotating_logger('python-utils-61')
-
-if __name__ == '__main__':
-    logger.info('Logger initialized successfully')
+# Singleton-ish instance for quick access
+logger = setup_logger()
