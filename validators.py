@@ -1,60 +1,40 @@
-"""Composable validator primitives with algebraic expression support."""
+import functools
 
-from typing import Any, Callable, Generic, TypeVar
+class InputValidationError(Exception):
+    pass
 
-T = TypeVar("T")
+def validate_schema(schema):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for key, expected_type in schema.items():
+                val = kwargs.get(key)
+                if val is not None and not isinstance(val, expected_type):
+                    raise InputValidationError(f'invalid type for {key}: expected {expected_type.__name__}')
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
+SCHEMA = {
+    'iterations': int,
+    'threshold': float,
+    'debug': bool
+}
 
-class Rule(Generic[T]):
-    """Wraps a validation predicate to support logical operations via operators."""
+def process_stream(data_generator, **params):
+    @validate_schema(SCHEMA)
+    def execute_step(payload):
+        return payload * 2
 
-    def __init__(self, predicate: Callable[[T], bool], message: str = "Validation failed") -> None:
-        """Initialize rule with predicate callable and failure message."""
-        self._predicate = predicate
-        self.message = message
-
-    def __call__(self, value: T) -> bool:
-        """Evaluate the predicate safely against the provided value."""
+    for item in data_generator:
         try:
-            return bool(self._predicate(value))
-        except (ValueError, TypeError, AttributeError):
-            return False
+            yield execute_step(payload=item, **params)
+        except InputValidationError as e:
+            print(f'skipping malformed payload: {e}')
+            continue
 
-    def __and__(self, other: "Rule[T]") -> "Rule[T]":
-        """Combine two rules with logical AND logic."""
-        return Rule(
-            lambda x: self(x) and other(x),
-            f"({self.message} AND {other.message})",
-        )
-
-    def __or__(self, other: "Rule[T]") -> "Rule[T]":
-        """Combine two rules with logical OR logic."""
-        return Rule(
-            lambda x: self(x) or other(x),
-            f"({self.message} OR {other.message})",
-        )
-
-    def __invert__(self) -> "Rule[T]":
-        """Negate the rule predicate."""
-        return Rule(
-            lambda x: not self(x),
-            f"NOT({self.message})",
-        )
-
-
-def is_type(expected_type: type) -> Rule[Any]:
-    """Create a rule verifying that a value is an instance of a specific type."""
-    return Rule(lambda x: isinstance(x, expected_type), f"isinstance({expected_type.__name__})")
-
-
-def matches_len(min_len: int, max_len: int) -> Rule[Any]:
-    """Create a rule verifying value length falls within a closed interval."""
-    return Rule(
-        lambda x: min_len <= len(x) <= max_len,
-        f"len in range [{min_len}, {max_len}]",
-    )
-
-
-def in_range(low: float, high: float) -> Rule[float]:
-    """Create a rule checking numeric bounds for ordered types."""
-    return Rule(lambda x: low <= x <= high, f"value in [{low}, {high}]")
+if __name__ == '__main__':
+    # usage in main loop
+    raw_input = [1, 2, 'three', 4]
+    processed = list(process_stream(raw_input, iterations=10, threshold=0.5))
+    print(f'final results: {processed}')
