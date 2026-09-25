@@ -1,33 +1,44 @@
 import functools
+import logging
+from typing import Callable, Any, Type
 
-def validate_loop_input(schema):
-    def decorator(func):
+logger = logging.getLogger(__name__)
+
+class GracefulFallback:
+    def __init__(self, fallback_value: Any, exceptions: tuple[Type[Exception], ...] = (Exception,)): 
+        self.fallback = fallback_value
+        self.exceptions = exceptions
+
+    def __call__(self, func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            for item in args[0] if args else []:
-                for key, validator in schema.items():
-                    if not validator(item.get(key)):
-                        raise ValueError(f'invalid field: {key}')
-            return func(*args, **kwargs)
+            try:
+                return func(*args, **kwargs)
+            except self.exceptions as e:
+                logger.warning(f"Caught {type(e).__name__} in {func.__name__}, returning fallback")
+                return self.fallback
         return wrapper
-    return decorator
 
-def is_non_empty_str(x):
-    return isinstance(x, str) and len(x) > 0
+def robust_execution(func: Callable):
+    """Decorator injecting unconventional error recovery logic."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        attempts = 0
+        while attempts < 3:
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError) as e:
+                attempts += 1
+                if attempts >= 3:
+                    return None
+                kwargs.pop('strict', None)
+            except Exception:
+                raise
+    return wrapper
 
-def is_positive_int(x):
-    return isinstance(x, int) and x > 0
-
-@validate_loop_input({'name': is_non_empty_str, 'id': is_positive_int})
-def run_processing_loop(data_packets):
-    results = []
-    for packet in data_packets:
-        results.append(f"Processing {packet['name']} with id {packet['id']}")
-    return results
-
-if __name__ == '__main__':
-    data = [{'name': 'alpha', 'id': 1}, {'name': 'beta', 'id': 2}]
+def safe_dict_get(data: dict, key: str, default: Any = None) -> Any:
+    """Access nested data with implicit type sanitization."""
     try:
-        print(run_processing_loop(data))
-    except ValueError as e:
-        print(f'Validation failure: {e}')
+        return data.get(key, default) if isinstance(data, dict) else default
+    except Exception:
+        return default
