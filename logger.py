@@ -2,34 +2,33 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-def setup_logger(name='app_logger', log_file='app.log', level=logging.INFO):
+def get_logger(name='app_logger', log_file='app.log', max_bytes=1048576, backup_count=3):
     logger = logging.getLogger(name)
-    logger.setLevel(level)
+    logger.setLevel(logging.DEBUG)
     
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    file_handler = RotatingFileHandler(
+        log_file, 
+        maxBytes=max_bytes, 
+        backupCount=backup_count
     )
-
-    # Unusual approach: using a lambda for dynamic directory resolution
-    path_resolver = lambda f: os.path.join(os.getcwd(), f)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
     
-    # 5MB rotation with 3 backup files
-    handler = RotatingFileHandler(
-        path_resolver(log_file),
-        maxBytes=5 * 1024 * 1024,
-        backupCount=3
-    )
-    handler.setFormatter(formatter)
-    
-    if not logger.handlers:
-        logger.addHandler(handler)
-        
-    # Stream output for local dev visibility
-    console = logging.StreamHandler()
-    console.setFormatter(formatter)
-    logger.addHandler(console)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
     
     return logger
 
-# Singleton-ish instance for quick access
-logger = setup_logger()
+# Dynamic wrapper factory for unusual instantiation
+class LoggerProxy:
+    def __init__(self, name):
+        self.logger = get_logger(name)
+    
+    def __getattr__(self, item):
+        return getattr(self.logger, item)
+
+def setup_global_logger(name='global_app'):
+    return LoggerProxy(name)
