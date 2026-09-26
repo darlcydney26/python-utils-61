@@ -1,42 +1,53 @@
-import functools
-import collections
-import time
+from typing import Any, Callable, Dict, List, Union
 
-class PerformanceOptimizer:
-    def __init__(self, ttl=60, max_size=128):
-        self.ttl = ttl
-        self.max_size = max_size
-        self._cache = collections.OrderedDict()
-        self._expiry = {}
 
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
-            now = time.monotonic()
-            if key in self._cache and now < self._expiry.get(key, 0):
-                return self._cache[key]
-            
-            result = func(*args, **kwargs)
-            
-            if len(self._cache) >= self.max_size:
-                self._cache.popitem(last=False)
-            
-            self._cache[key] = result
-            self._expiry[key] = now + self.ttl
-            return result
-        return wrapper
+class PathDataProcessor:
+    """Nested structure query and dynamic transformer using path notation."""
 
-cache_manager = PerformanceOptimizer(ttl=300)
+    def __init__(self, data: Any) -> None:
+        self._data = data
 
-@cache_manager
-def heavy_computation(data_node, multiplier=1):
-    """Simulated expensive calculation node."""
-    time.sleep(0.5)
-    return sum(map(lambda x: x * multiplier, data_node))
+    def extract(self, path: str, default: Any = None) -> Any:
+        tokens = [t for t in path.strip("/").split("/") if t]
+        curr = self._data
+        for token in tokens:
+            if isinstance(curr, dict) and token in curr:
+                curr = curr[token]
+            elif isinstance(curr, (list, tuple)) and token.isdigit():
+                idx = int(token)
+                curr = curr[idx] if 0 <= idx < len(curr) else default
+            else:
+                return default
+        return curr
 
-def batch_process(data_stream):
-    results = []
-    for chunk in data_stream:
-        results.append(heavy_computation(tuple(chunk)))
-    return results
+    def mutate(self, rules: Dict[str, Callable[[Any], Any]]) -> Any:
+        def _walk(node: Any, current_path: str) -> Any:
+            if current_path in rules:
+                node = rules[current_path](node)
+
+            if isinstance(node, dict):
+                return {
+                    k: _walk(v, f"{current_path}/{k}" if current_path else str(k))
+                    for k, v in node.items()
+                }
+            elif isinstance(node, list):
+                return [
+                    _walk(item, f"{current_path}/{i}" if current_path else str(i))
+                    for i, item in enumerate(node)
+                ]
+            return node
+
+        return _walk(self._data, "")
+
+    def __rshift__(self, step: Union[tuple, Dict[str, Callable[[Any], Any]]]) -> "PathDataProcessor":
+        if isinstance(step, tuple) and len(step) == 2:
+            rules = {step[0]: step[1]}
+        elif isinstance(step, dict):
+            rules = step
+        else:
+            raise ValueError("Invalid pipeline mutation specification")
+        return PathDataProcessor(self.mutate(rules))
+
+    @property
+    def value(self) -> Any:
+        return self._data
