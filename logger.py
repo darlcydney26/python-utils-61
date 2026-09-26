@@ -2,33 +2,42 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-def get_logger(name='app_logger', log_file='app.log', max_bytes=1048576, backup_count=3):
+def get_logger(name, log_path='app.log', max_size=1048576, backups=3):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-    file_handler = RotatingFileHandler(
-        log_file, 
-        maxBytes=max_bytes, 
-        backupCount=backup_count
-    )
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-    
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            '%(asctime)s | %(name)s | %(levelname)s | %(message)s'
+        )
+        
+        handler = RotatingFileHandler(
+            log_path, 
+            maxBytes=max_size, 
+            backupCount=backups
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
+        logger.addHandler(console)
+        
     return logger
 
-# Dynamic wrapper factory for unusual instantiation
-class LoggerProxy:
-    def __init__(self, name):
-        self.logger = get_logger(name)
-    
-    def __getattr__(self, item):
-        return getattr(self.logger, item)
+class LogContext:
+    def __init__(self, logger):
+        self.logger = logger
+    def __enter__(self):
+        self.logger.info('operation start')
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.logger.error(f'operation failed: {exc_val}')
+        else:
+            self.logger.info('operation complete')
 
-def setup_global_logger(name='global_app'):
-    return LoggerProxy(name)
+if __name__ == '__main__':
+    log = get_logger('core')
+    with LogContext(log):
+        log.debug('testing rotation logic')
