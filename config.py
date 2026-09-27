@@ -1,32 +1,36 @@
-import os
 import json
+from pathlib import Path
 from typing import Any, Dict
 
 class ConfigLoader:
     def __init__(self, defaults: Dict[str, Any]):
-        self._data = defaults.copy()
+        self._data = defaults
 
-    def load_from_env(self, prefix: str = 'APP_') -> None:
-        for key in self._data:
-            env_key = f"{prefix}{key.upper()}"
-            if env_key in os.environ:
-                self._data[key] = os.environ[env_key]
+    def load(self, path: str) -> 'ConfigLoader':
+        file = Path(path)
+        if file.exists():
+            with open(file, 'r') as f:
+                loaded = json.load(f)
+                self._deep_update(self._data, loaded)
+        return self
 
-    def load_from_json(self, filepath: str) -> None:
-        if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                file_data = json.load(f)
-                self._data.update({k: v for k, v in file_data.items() if k in self._data})
+    def _deep_update(self, source: Dict, overrides: Dict) -> None:
+        for key, value in overrides.items():
+            if isinstance(value, dict) and key in source and isinstance(source[key], dict):
+                self._deep_update(source[key], value)
+            else:
+                source[key] = value
 
     def __getattr__(self, name: str) -> Any:
-        if name in self._data:
-            return self._data[name]
-        raise AttributeError(f"Config has no attribute '{name}'")
+        return self._data.get(name)
 
     def __repr__(self) -> str:
-        return f"<ConfigLoader keys={list(self._data.keys())}>"
+        return f"<ConfigLoader: {list(self._data.keys())}>"
 
-# Example usage:
-# cfg = ConfigLoader({'host': 'localhost', 'port': 8080})
-# cfg.load_from_env()
+    @property
+    def raw(self) -> Dict[str, Any]:
+        return self._data
+
+# Usage:
+# cfg = ConfigLoader({"host": "localhost", "port": 8080}).load("settings.json")
 # print(cfg.host)
