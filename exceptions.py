@@ -1,35 +1,29 @@
-class UtilityError(Exception):
-    """Base exception for python-utils-61"""
+from typing import Type, Any, Optional
+
+class BaseAppException(Exception):
+    """Base exception for python-utils-61 project."""
+    def __init__(self, message: str, code: Optional[int] = None) -> None:
+        super().__init__(f"[{code}] {message}" if code else message)
+        self.code = code
+
+class ConfigurationError(BaseAppException):
+    """Raised when project configuration is malformed or missing."""
     pass
 
-class ConfigurationError(UtilityError):
-    """Configuration state anomalies"""
+class ProcessingError(BaseAppException):
+    """Raised when data transformation logic fails unexpectedly."""
     pass
 
-class ProcessingError(UtilityError):
-    """Data transformation failures"""
-    def __init__(self, message, payload=None):
-        super().__init__(message)
-        self.payload = payload or {}
+def raise_if_none(value: Any, exc_type: Type[BaseAppException] = ProcessingError, msg: str = "Value cannot be None") -> None:
+    """Conditional exception raiser for fluid error handling."""
+    if value is None:
+        raise exc_type(msg)
 
-class Registry:
-    _registry = {}
-
-    @classmethod
-    def register(cls, exc_cls):
-        cls._registry[exc_cls.__name__] = exc_cls
-        return exc_cls
-
-@Registry.register
-class ValidationError(UtilityError):
-    """Schema validation violations"""
-    pass
-
-def raise_if(condition, exc_class, message):
-    if condition:
-        raise exc_class(message)
-
-class ExceptionFactory:
-    @staticmethod
-    def create(name, message):
-        return Registry._registry.get(name, UtilityError)(message)
+def suppress_errors(func: callable) -> callable:
+    """Decorator for silencing exceptions and returning None instead."""
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            return None
+    return wrapper
