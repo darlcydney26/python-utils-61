@@ -1,33 +1,31 @@
-import functools
+from typing import Any, Callable, Dict, List, TypeVar, Union
 
-def validate_inputs(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        for arg in args:
-            if arg is None:
-                raise ValueError('invalid input: null argument detected')
-        return func(*args, **kwargs)
-    return wrapper
+T = TypeVar('T')
 
-@validate_inputs
-def process_stream(data_packet):
-    if not isinstance(data_packet, dict):
-        return None
-    return {k: v for k, v in data_packet.items() if v is not None}
+def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Chain functions into a single execution pipeline."""
+    def pipeline(data: Any) -> Any:
+        for func in funcs:
+            data = func(data)
+        return data
+    return pipeline
 
-def main_loop(data_list):
-    processed_results = []
-    for entry in data_list:
-        try:
-            result = process_stream(entry)
-            if result:
-                processed_results.append(result)
-        except (ValueError, TypeError) as e:
-            print(f'skipping malformed entry: {e}')
-            continue
-    return processed_results
+def deep_update(mapping: Dict[Any, Any], *updating_maps: Dict[Any, Any]) -> Dict[Any, Any]:
+    """Recursive dictionary merge for nested configuration structures."""
+    for update in updating_maps:
+        for key, value in update.items():
+            if isinstance(value, dict) and key in mapping and isinstance(mapping[key], dict):
+                deep_update(mapping[key], value)
+            else:
+                mapping[key] = value
+    return mapping
 
-if __name__ == '__main__':
-    sample_data = [{'id': 1, 'val': 'a'}, None, {'id': 2, 'val': 'b'}]
-    results = main_loop(sample_data)
-    print(f'processed {len(results)} items successfully')
+def pluck(data: List[Dict[str, Any]], key: str, default: Any = None) -> List[Any]:
+    """Extraction of specific fields from lists of dictionaries."""
+    return [item.get(key, default) for item in data]
+
+def batch_process(items: List[T], size: int) -> List[List[T]]:
+    """Chunking logic for memory-efficient list processing operations."""
+    if size <= 0:
+        raise ValueError("Batch size must be positive integer")
+    return [items[i:i + size] for i in range(0, len(items), size)]
