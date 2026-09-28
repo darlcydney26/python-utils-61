@@ -1,43 +1,32 @@
-import logging
-from logging.handlers import RotatingFileHandler
-import os
+import sys
+import functools
+import traceback
 
-def get_logger(name, log_path='app.log', max_size=1048576, backups=3):
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    if not logger.handlers:
-        formatter = logging.Formatter(
-            '%(asctime)s | %(name)s | %(levelname)s | %(message)s'
-        )
-        
-        handler = RotatingFileHandler(
-            log_path, 
-            maxBytes=max_size, 
-            backupCount=backups
-        )
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        
-        console = logging.StreamHandler()
-        console.setFormatter(formatter)
-        logger.addHandler(console)
-        
-    return logger
+def resilient_log(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (OSError, IOError) as e:
+            sys.stderr.write(f"[CRITICAL LOG FAILURE]: {str(e)}\n")
+            return None
+        except Exception:
+            sys.stderr.write(f"[UNEXPECTED ERROR]: {traceback.format_exc()}")
+            return False
+    return wrapper
 
-class LogContext:
-    def __init__(self, logger):
-        self.logger = logger
-    def __enter__(self):
-        self.logger.info('operation start')
-        return self
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type:
-            self.logger.error(f'operation failed: {exc_val}')
-        else:
-            self.logger.info('operation complete')
+class StreamLogger:
+    def __init__(self, stream=sys.stdout):
+        self.stream = stream
 
-if __name__ == '__main__':
-    log = get_logger('core')
-    with LogContext(log):
-        log.debug('testing rotation logic')
+    @resilient_log
+    def log(self, message: str) -> None:
+        if not isinstance(message, str):
+            raise ValueError("message must be string type")
+        self.stream.write(f"{message}\n")
+        self.stream.flush()
+
+def safe_logger(message: str):
+    logger = StreamLogger()
+    result = logger.log(message)
+    return result if result is not None else "failed"
