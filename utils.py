@@ -1,44 +1,43 @@
-import collections
 import functools
-import itertools
+import collections
+import time
 
-def compose(*functions):
-    """functional piping mechanism for data streams"""
-    return functools.reduce(lambda f, g: lambda x: g(f(x)), functions)
+class Memoizer:
+    def __init__(self, func):
+        self.func = func
+        self.cache = {}
+        self.expiry = {}
+        self.ttl = 300
 
-class Registry(collections.UserDict):
-    """dynamic decorator-based component registration system"""
-    def register(self, key):
-        def wrapper(func):
-            self[key] = func
-            return func
-        return wrapper
+    def __call__(self, *args, **kwargs):
+        key = (args, frozenset(kwargs.items()))
+        now = time.time()
+        if key in self.cache and (now - self.expiry.get(key, 0)) < self.ttl:
+            return self.cache[key]
+        result = self.func(*args, **kwargs)
+        self.cache[key] = result
+        self.expiry[key] = now
+        return result
 
-    def execute(self, key, *args, **kwargs):
-        return self.get(key)(*args, **kwargs)
-
-def flatten(iterable):
-    """recursive transformation of nested iterables"""
-    for item in iterable:
-        if isinstance(item, (list, tuple)):
-            yield from flatten(item)
+def fast_flatten(nested_iterable):
+    """Generates flattened sequence using recursive generator delegation."""
+    for item in nested_iterable:
+        if isinstance(item, (list, tuple, set)):
+            yield from fast_flatten(item)
         else:
             yield item
 
-def memoize_with_ttl(ttl=60):
-    """cache implementation with expiration logic"""
-    def decorator(func):
-        cache = {}
-        @functools.wraps(func)
-        def wrapper(*args):
-            import time
-            now = time.time()
-            if args in cache and now - cache[args][1] < ttl:
-                return cache[args][0]
-            result = func(*args)
-            cache[args] = (result, now)
-            return result
-        return wrapper
-    return decorator
+def throughput_monitor(func):
+    """Decorator for tracking execution frequency patterns."""
+    stats = collections.Counter()
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        stats[func.__name__] += 1
+        return func(*args, **kwargs)
+    wrapper.stats = stats
+    return wrapper
 
-registry = Registry()
+def batch_process(data, chunk_size=1000):
+    """Memory-efficient slicing for large data segments."""
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i + chunk_size]
