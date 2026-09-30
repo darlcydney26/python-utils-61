@@ -1,43 +1,29 @@
-import functools
-import collections
-import time
+from typing import Any, Union, List, Dict
 
-class Memoizer:
-    def __init__(self, func):
-        self.func = func
-        self.cache = {}
-        self.expiry = {}
-        self.ttl = 300
+class PathNavigator:
+    """
+    A creative utility for traversing nested dictionary and list structures
+    using filesystem-like path syntax, including relative backtracks (..) and wildcards (*).
+    """
+    def __init__(self, data: Union[Dict, List]):
+        self.data = data
 
-    def __call__(self, *args, **kwargs):
-        key = (args, frozenset(kwargs.items()))
-        now = time.time()
-        if key in self.cache and (now - self.expiry.get(key, 0)) < self.ttl:
-            return self.cache[key]
-        result = self.func(*args, **kwargs)
-        self.cache[key] = result
-        self.expiry[key] = now
-        return result
+    def _parse(self, path: str) -> List[str]:
+        return [s for s in path.split('/') if s and s != '.']
 
-def fast_flatten(nested_iterable):
-    """Generates flattened sequence using recursive generator delegation."""
-    for item in nested_iterable:
-        if isinstance(item, (list, tuple, set)):
-            yield from fast_flatten(item)
-        else:
-            yield item
+    def get(self, path: str, default: Any = None) -> Any:
+        if not path or path == '/':
+            return self.data
 
-def throughput_monitor(func):
-    """Decorator for tracking execution frequency patterns."""
-    stats = collections.Counter()
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        stats[func.__name__] += 1
-        return func(*args, **kwargs)
-    wrapper.stats = stats
-    return wrapper
+        segments = self._parse(path)
+        state = [([], self.data)]
 
-def batch_process(data, chunk_size=1000):
-    """Memory-efficient slicing for large data segments."""
-    for i in range(0, len(data), chunk_size):
-        yield data[i:i + chunk_size]
+        for step in segments:
+            next_state = []
+            for history, current in state:
+                if step == '..':
+                    if history:
+                        parent_history = history[:-1]
+                        parent_val = self.data
+                        for key in parent_history:
+                            if isinstance(parent_val, list
