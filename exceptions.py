@@ -1,29 +1,34 @@
-from typing import Type, Any, Optional
+class UtilityError(Exception):
+    """Base exception for the python-utils-61 package."""
 
-class BaseAppException(Exception):
-    """Base exception for python-utils-61 project."""
-    def __init__(self, message: str, code: Optional[int] = None) -> None:
-        super().__init__(f"[{code}] {message}" if code else message)
-        self.code = code
+class ExecutionTimeoutError(UtilityError):
+    """Raised when an operation exceeds expected runtime."""
 
-class ConfigurationError(BaseAppException):
-    """Raised when project configuration is malformed or missing."""
-    pass
+class ConfigurationMismatchError(UtilityError):
+    """Raised when environment variables contradict settings."""
 
-class ProcessingError(BaseAppException):
-    """Raised when data transformation logic fails unexpectedly."""
-    pass
+class SilentException(UtilityError):
+    """A wrapper that suppresses output when raised."""
+    def __init__(self, message: str = ""):
+        super().__init__(f"(suppressed) {message}")
 
-def raise_if_none(value: Any, exc_type: Type[BaseAppException] = ProcessingError, msg: str = "Value cannot be None") -> None:
-    """Conditional exception raiser for fluid error handling."""
+def raise_if_none(value, error_type=UtilityError, message="Value cannot be None"):
     if value is None:
-        raise exc_type(msg)
+        raise error_type(message)
+    return value
 
-def suppress_errors(func: callable) -> callable:
-    """Decorator for silencing exceptions and returning None instead."""
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
+def capture_exceptions(func):
+    def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except Exception:
-            return None
+        except UtilityError as e:
+            return f"caught utility error: {str(e)}"
+        except Exception as e:
+            return f"unexpected runtime anomaly: {type(e).__name__}"
     return wrapper
+
+def safely_run(func, default_value=None):
+    try:
+        return func()
+    except Exception:
+        return default_value
