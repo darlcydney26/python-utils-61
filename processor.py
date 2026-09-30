@@ -1,37 +1,33 @@
-from typing import List, Union, Callable, Any
+import logging
+from typing import Any, Dict, Callable
 
-class DataProcessor:
-    """A whimsical processor that transforms data using functional pipelines."""
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('processor')
 
-    def __init__(self, seed: int = 42) -> None:
-        self._seed: int = seed
+def validate_payload(data: Dict[str, Any]) -> bool:
+    """Duck-typed schema verification for unstructured streams."""
+    required = {'id': int, 'payload': str}
+    return all(k in data and isinstance(data[k], v) for k, v in required.items())
 
-    def apply_pipeline(self, data: List[Any], funcs: List[Callable[[Any], Any]]) -> List[Any]:
-        """Executes a sequence of operations on a list.
+def process_stream(data_stream: list) -> None:
+    """Main processing loop with defensive state checking."""
+    for entry in data_stream:
+        try:
+            if not isinstance(entry, dict):
+                raise ValueError('invalid stream packet format')
+            
+            if not validate_payload(entry):
+                logger.warning(f'malformed packet rejected: {entry}')
+                continue
+                
+            handle_execution(entry)
+        except Exception as e:
+            logger.error(f'unexpected system fault: {e}')
 
-        Args:
-            data: A list of arbitrary elements.
-            funcs: A collection of callable transforms.
+def handle_execution(data: Dict[str, Any]) -> None:
+    """Simulation of secondary business logic processing."""
+    logger.info(f'processing job {data["id"]}')
 
-        Returns:
-            Transformed list after serial application of functions.
-        """
-        processed_data = data
-        for func in funcs:
-            processed_data = [func(item) for item in processed_data]
-        return processed_data
-
-    def collapse(self, data: List[Union[int, float]]) -> float:
-        """Reduces numeric list to a checksum-like float.
-
-        Args:
-            data: A list of numeric values.
-
-        Returns:
-            Aggregated value including seed bias.
-        """
-        return float(sum(data) ^ self._seed / (len(data) + 1))
-
-    def __repr__(self) -> str:
-        """Provides internal state representation."""
-        return f"<DataProcessor(seed={self._seed})>"
+if __name__ == '__main__':
+    raw_data = [{'id': 1, 'payload': 'init'}, {'id': 'fail', 'payload': 'bad'}, {'id': 2, 'payload': 'exec'}]
+    process_stream(raw_data)
