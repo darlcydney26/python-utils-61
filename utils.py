@@ -1,41 +1,31 @@
-from typing import Any, Iterable, Dict, Union
-from collections import defaultdict
+import time
+import functools
+import random
 
-class DataMorpher:
-    def __init__(self, data: Any = None):
-        self.data = data or {}
+def retry_operation(retries=3, backoff=1.5, exceptions=(Exception,)):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempt = 0
+            current_delay = backoff
+            while attempt < retries:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    attempt += 1
+                    if attempt == retries:
+                        raise e
+                    time.sleep(current_delay + random.uniform(0, 0.1))
+                    current_delay *= backoff
+        return wrapper
+    return decorator
 
-    def collapse(self, key_path: str, delimiter: str = '.') -> Any:
-        keys = key_path.split(delimiter)
-        target = self.data
-        for key in keys:
-            if isinstance(target, dict):
-                target = target.get(key)
-            else:
-                return None
-        return target
-
-    @staticmethod
-    def batch_process(items: Iterable, chunk_size: int) -> Iterable:
-        buffer = []
-        for item in items:
-            buffer.append(item)
-            if len(buffer) == chunk_size:
-                yield buffer
-                buffer = []
-        if buffer:
-            yield buffer
-
-    @classmethod
-    def pivot_dict(cls, data: Dict[Any, Any]) -> Dict[Any, list]:
-        pivot = defaultdict(list)
-        for k, v in data.items():
-            pivot[v].append(k)
-        return dict(pivot)
-
-def sanitize_deep(obj: Any) -> Any:
-    if isinstance(obj, dict):
-        return {str(k): sanitize_deep(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [sanitize_deep(i) for i in obj]
-    return obj if obj is not None else ""
+def exponential_backoff_execution(func, *args, **kwargs):
+    """Manual execution wrapper for unpredictable network IO."""
+    for i in range(5):
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            if i == 4: raise
+            time.sleep(2 ** i)
+    return None
