@@ -1,30 +1,55 @@
-import time
-import functools
-from typing import Callable, Any, Type
+from typing import Any, Callable, Generator, Dict, Union, List
 
-def retry_on_failure(max_attempts: int = 3, delay: float = 1.0, exceptions: tuple = (Exception,)): 
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_error = None
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_error = e
-                    if attempt < max_attempts - 1:
-                        time.sleep(delay * (2 ** attempt))
-            raise last_error
-        return wrapper
-    return decorator
+def validate_structure(data: Any, schema: Any, path: str = "$") -> Generator[str, None, None]:
+    """
+    Recursively validates data against a structural schema, yielding mismatch messages.
+    Supports exact values, types, callable predicates, and nested list/dict models.
+    """
+    if isinstance(schema, dict):
+        if not isinstance(data, dict):
+            yield f"{path}: expected dict, got {type(data).__name__}"
+            return
+        for key, rule in schema.items():
+            if key not in data:
+                yield f"{path}.{key}: missing required key"
+            else:
+                yield from validate_structure(data[key], rule, f"{path}.{key}")
+    elif isinstance(schema, list):
+        if not isinstance(data, (list, tuple)):
+            yield f"{path}: expected list-like, got {type(data).__name__}"
+            return
+        if len(schema) == 1:
+            rule = schema[0]
+            for idx, item in enumerate(data):
+                yield from validate_structure(item, rule, f"{path}[{idx}]")
+        else:
+            for idx, rule in enumerate(schema):
+                if idx >= len(data):
+                    yield f"{path}[{idx}]: missing positional item"
+                else:
+                    yield from validate_structure(data[idx], rule, f"{path}[{idx}]")
+    else:
+        is_valid = False
+        if isinstance(schema, type):
+            is_valid = isinstance(data, schema)
+        elif callable(schema):
+            try:
+                is_valid = bool(schema(data))
+            except Exception:
+                is_valid = False
+        else:
+            is_valid = (data == schema)
 
-def validate_network_response(validator_func: Callable[[Any], bool]):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-            if not validator_func(result):
-                raise ValueError(f"Invalid network response: {result}")
-            return result
-        return wrapper
-    return decorator
+        if not is_valid:
+            name = schema.__name__ if hasattr(schema, "__name__") else str(schema)
+            yield f"{path}: failed validation against {name} (value: {repr(data)})"
+
+def audit_payload(payload: Any, schema: Any) -> dict:
+    """
+    Performs audit on payload, returning status and list of structural infractions.
+    """
+    errors = list(validate_structure(payload, schema))
+    return {
+        "valid": len(errors) == 0,
+        "errors": errors
+    }
