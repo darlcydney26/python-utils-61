@@ -1,31 +1,31 @@
-from typing import Any, Callable, Dict, List, TypeVar, Union
+import time
+import functools
+import random
 
-T = TypeVar('T')
+def retry_network_op(retries=3, backoff_factor=1.5, exceptions=(ConnectionError, TimeoutError)):
+    """Retry logic for network operations using exponential jittered backoff"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempt = 0
+            while attempt < retries:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    attempt += 1
+                    if attempt == retries:
+                        raise e
+                    sleep_time = (backoff_factor ** attempt) + (random.random() * 0.5)
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
 
-def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """Chain functions into a single execution pipeline."""
-    def pipeline(data: Any) -> Any:
-        for func in funcs:
-            data = func(data)
-        return data
-    return pipeline
-
-def deep_update(mapping: Dict[Any, Any], *updating_maps: Dict[Any, Any]) -> Dict[Any, Any]:
-    """Recursive dictionary merge for nested configuration structures."""
-    for update in updating_maps:
-        for key, value in update.items():
-            if isinstance(value, dict) and key in mapping and isinstance(mapping[key], dict):
-                deep_update(mapping[key], value)
-            else:
-                mapping[key] = value
-    return mapping
-
-def pluck(data: List[Dict[str, Any]], key: str, default: Any = None) -> List[Any]:
-    """Extraction of specific fields from lists of dictionaries."""
-    return [item.get(key, default) for item in data]
-
-def batch_process(items: List[T], size: int) -> List[List[T]]:
-    """Chunking logic for memory-efficient list processing operations."""
-    if size <= 0:
-        raise ValueError("Batch size must be positive integer")
-    return [items[i:i + size] for i in range(0, len(items), size)]
+class NetworkResilience:
+    def __init__(self, limit=5):
+        self.limit = limit
+    
+    def execute(self, task, *args, **kwargs):
+        @retry_network_op(retries=self.limit)
+        def run():
+            return task(*args, **kwargs)
+        return run()
