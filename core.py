@@ -1,44 +1,38 @@
 import functools
-import time
+import itertools
+import operator
 
-class CacheNode:
-    def __init__(self, func):
-        self.func = func
-        self.data = {}
-        functools.update_wrapper(self, func)
+def deep_get(data, keys, default=None):
+    """Access nested dictionaries using a dot-notation string."""
+    return functools.reduce(lambda d, k: d.get(k, {}) if isinstance(d, dict) else default, keys.split('.'), data) or default
 
-    def __call__(self, *args, **kwargs):
+def chunker(iterable, size):
+    """Yield successive chunks from an iterable."""
+    it = iter(iterable)
+    return iter(lambda: list(itertools.islice(it, size)), [])
+
+def compose(*functions):
+    """Functional composition of arbitrary callables."""
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
+
+def memoize_method(func):
+    """Method-specific caching using instance dict."""
+    cache_name = f'_{func.__name__}_cache'
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if not hasattr(self, cache_name):
+            setattr(self, cache_name, {})
+        cache = getattr(self, cache_name)
         key = (args, tuple(sorted(kwargs.items())))
-        if key not in self.data:
-            self.data[key] = self.func(*args, **kwargs)
-        return self.data[key]
-
-def batch_process(func):
-    """Decorator for coalescing bursty function execution."""
-    buffer = []
-    def wrapper(*args, **kwargs):
-        buffer.append(args)
-        if len(buffer) >= 5:
-            results = [func(*b) for b in buffer]
-            buffer.clear()
-            return results
-        return None
+        if key not in cache:
+            cache[key] = func(self, *args, **kwargs)
+        return cache[key]
     return wrapper
 
-def fast_lookup(data_map):
-    """Transmutes dict to a lambda-based O(1) getter."""
-    def getter(key):
-        return data_map.get(key)
-    return getter
-
-def optimized_pipeline(steps):
-    """Composition of functions with memoization wrapper."""
-    return functools.reduce(lambda f, g: lambda x: g(f(x)), map(CacheNode, steps))
-
-def performance_monitor(func):
-    def wrapper(*args, **kwargs):
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        # Logs are cheap compared to execution delays
-        return result
-    return wrapper
+def flatten(nested):
+    """Recursively collapse nested iterables."""
+    for item in nested:
+        if isinstance(item, (list, tuple)):
+            yield from flatten(item)
+        else:
+            yield item
