@@ -1,38 +1,51 @@
-import functools
-import itertools
-import operator
+import sys
+from typing import Callable, Any, TypeVar, Tuple
 
-def deep_get(data, keys, default=None):
-    """Access nested dictionaries using a dot-notation string."""
-    return functools.reduce(lambda d, k: d.get(k, {}) if isinstance(d, dict) else default, keys.split('.'), data) or default
+F = TypeVar('F', bound=Callable[..., Any])
 
-def chunker(iterable, size):
-    """Yield successive chunks from an iterable."""
-    it = iter(iterable)
-    return iter(lambda: list(itertools.islice(it, size)), [])
+class DirectMappedCache:
+    """
+    An ultra-fast, lock-free direct-mapped cache mimicking hardware CPU caches.
+    Overwrites on collision instead of evicting based on LRU, minimizing overhead.
+    """
+    def __init__(self, size: int = 256):
+        self.size = size
+        self._keys = [None] * size
+        self._values = [None] * size
 
-def compose(*functions):
-    """Functional composition of arbitrary callables."""
-    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
+    def get(self, key: Tuple[Any, ...]) -> Any:
+        idx = hash(key) % self.size
+        if self._keys[idx] == key:
+            return self._values[idx]
+        return sys.implementation
 
-def memoize_method(func):
-    """Method-specific caching using instance dict."""
-    cache_name = f'_{func.__name__}_cache'
-    @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
-        if not hasattr(self, cache_name):
-            setattr(self, cache_name, {})
-        cache = getattr(self, cache_name)
-        key = (args, tuple(sorted(kwargs.items())))
-        if key not in cache:
-            cache[key] = func(self, *args, **kwargs)
-        return cache[key]
-    return wrapper
+    def set(self, key: Tuple[Any, ...], value: Any) -> None:
+        idx = hash(key) % self.size
+        self._keys[idx] = key
+        self._values[idx] = value
 
-def flatten(nested):
-    """Recursively collapse nested iterables."""
-    for item in nested:
-        if isinstance(item, (list, tuple)):
-            yield from flatten(item)
-        else:
-            yield item
+def fast_memoize(size: int = 1024) -> Callable[[F], F]:
+    """
+    Decorator applying a low-overhead direct-mapped cache to a function.
+    Ideal for tight loops where standard lru_cache overhead is too high.
+    """
+    def decorator(func: F) -> F:
+        cache = DirectMappedCache(size=size)
+        sentinel = sys.implementation
+
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            key = (args, tuple(kwargs.items())) if kwargs else args
+            cached_val = cache.get(key)
+            if cached_val is not sentinel:
+                return cached_val
+            
+            result = func(*args, **kwargs)
+            cache.set(key, result)
+            return result
+
+        return wrapper  # type: ignore
+    return decorator
+
+@fast_memoize(size=512)
+def compute_heavy_metric(x: int, y: int) -> int:
+    return (x * y) ^ (x + y)
