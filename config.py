@@ -1,37 +1,35 @@
-import os
 import json
+import os
 from typing import Any, Dict
 
 class ConfigLoader:
-    """Dynamic dictionary proxy for configuration management."""
-    def __init__(self, defaults: Dict[str, Any] = None):
-        self._data = defaults or {}
+    def __init__(self, defaults: Dict[str, Any]):
+        self._data = defaults.copy()
 
-    def load_from_env(self, prefix: str = "APP_") -> None:
-        for key, value in os.environ.items():
-            if key.startswith(prefix):
-                clean_key = key[len(prefix):].lower()
-                self._data[clean_key] = self._try_parse(value)
-
-    def load_from_json(self, path: str) -> None:
+    def load(self, path: str) -> 'ConfigLoader':
         if os.path.exists(path):
             with open(path, 'r') as f:
-                self._data.update(json.load(f))
-
-    def _try_parse(self, val: str) -> Any:
-        try:
-            return json.loads(val.lower())
-        except (json.JSONDecodeError, TypeError):
-            return val
+                try:
+                    user_data = json.load(f)
+                    self._data.update(user_data)
+                except json.JSONDecodeError:
+                    pass
+        return self
 
     def __getattr__(self, name: str) -> Any:
         return self._data.get(name)
 
-    def __getitem__(self, name: str) -> Any:
-        return self._data[name]
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
 
-    def keys(self):
-        return self._data.keys()
-
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"ConfigLoader({self._data})"
+
+def get_config(path: str, defaults: Dict[str, Any]) -> ConfigLoader:
+    return ConfigLoader(defaults).load(path)
+
+# Usage example logic
+if __name__ == '__main__':
+    defaults = {'host': 'localhost', 'port': 8080, 'debug': False}
+    config = get_config('settings.json', defaults)
+    print(f"Active host: {config.host}")
