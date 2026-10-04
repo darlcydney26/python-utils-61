@@ -1,68 +1,35 @@
-import logging
+import datetime
+import inspect
 import sys
-import time
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
+from typing import Any
 
+class DataLogger:
+    """An unconventional stream-based data interceptor."""
+    def __init__(self, stream=sys.stdout):
+        self.stream = stream
 
-class ResourceAwareFormatter(logging.Formatter):
-    """Custom log formatter injecting elapsed process uptime signatures."""
+    def __call__(self, obj: Any, label: str = "DEBUG") -> Any:
+        caller = inspect.stack()[1]
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        context = f"{caller.function}@{caller.lineno}"
+        
+        payload = {
+            "ts": timestamp,
+            "loc": context,
+            "lbl": label,
+            "val": repr(obj)
+        }
+        
+        formatted = " | ".join(f"{k}={v}" for k, v in payload.items())
+        self.stream.write(f"[DATA-TRAP] {formatted}\n")
+        return obj
 
-    def __init__(self, fmt: str = None, datefmt: str = None):
-        super().__init__(fmt, datefmt)
-        self._start_time = time.time()
+log = DataLogger()
 
-    def format(self, record: logging.LogRecord) -> str:
-        record.uptime = f"{time.time() - self._start_time:07.2f}s"
-        return super().format(record)
-
-
-class BoundaryRotator(RotatingFileHandler):
-    """Rotating file handler that writes boundary markers upon log rollover."""
-
-    def doRollover(self) -> None:
-        super().doRollover()
-        if self.stream:
-            self.stream.write("=== ROTATION BOUNDARY MET ===\n")
-            self.stream.flush()
-
-
-def setup_logger(
-    name: str = "app",
-    log_dir: str = "logs",
-    max_bytes: int = 512_000,
-    backup_count: int = 3,
-    level: int = logging.INFO,
-) -> logging.Logger:
-    """Configures a pre-packaged rotating logger with uptime tracking."""
-    target_dir = Path(log_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    log_path = target_dir / f"{name}.log"
-
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-
-    if logger.handlers:
-        return logger
-
-    fmt = "[%(asctime)s] [+%(uptime)s] [%(levelname)s] %(name)s: %(message)s"
-    formatter = ResourceAwareFormatter(fmt=fmt, datefmt="%Y-%m-%d %H:%M:%S")
-
-    file_handler = BoundaryRotator(
-        log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
-    )
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-    return logger
-
+def tap(data: Any, label: str = "LOG") -> Any:
+    return log(data, label)
 
 if __name__ == "__main__":
-    log = setup_logger("demo", max_bytes=250, backup_count=2)
-    for idx in range(5):
-        log.info(f"Executing utility pipeline cycle #{idx}")
-        time.sleep(0.02)
+    # Example usage: tap(x) returns x while side-effecting to stdout
+    result = tap([1, 2, 3], label="INIT_LIST")
+    assert result == [1, 2, 3]
