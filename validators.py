@@ -1,55 +1,49 @@
-from typing import Any, Callable, Generator, Dict, Union, List
+import re
+from typing import Any, Callable, Generic, TypeVar
 
-def validate_structure(data: Any, schema: Any, path: str = "$") -> Generator[str, None, None]:
-    """
-    Recursively validates data against a structural schema, yielding mismatch messages.
-    Supports exact values, types, callable predicates, and nested list/dict models.
-    """
-    if isinstance(schema, dict):
-        if not isinstance(data, dict):
-            yield f"{path}: expected dict, got {type(data).__name__}"
-            return
-        for key, rule in schema.items():
-            if key not in data:
-                yield f"{path}.{key}: missing required key"
-            else:
-                yield from validate_structure(data[key], rule, f"{path}.{key}")
-    elif isinstance(schema, list):
-        if not isinstance(data, (list, tuple)):
-            yield f"{path}: expected list-like, got {type(data).__name__}"
-            return
-        if len(schema) == 1:
-            rule = schema[0]
-            for idx, item in enumerate(data):
-                yield from validate_structure(item, rule, f"{path}[{idx}]")
-        else:
-            for idx, rule in enumerate(schema):
-                if idx >= len(data):
-                    yield f"{path}[{idx}]: missing positional item"
-                else:
-                    yield from validate_structure(data[idx], rule, f"{path}[{idx}]")
-    else:
-        is_valid = False
-        if isinstance(schema, type):
-            is_valid = isinstance(data, schema)
-        elif callable(schema):
-            try:
-                is_valid = bool(schema(data))
-            except Exception:
-                is_valid = False
-        else:
-            is_valid = (data == schema)
+T = TypeVar("T")
 
-        if not is_valid:
-            name = schema.__name__ if hasattr(schema, "__name__") else str(schema)
-            yield f"{path}: failed validation against {name} (value: {repr(data)})"
+class Validator(Generic[T]):
+    """A pipeline-able validator utilizing operator overloading."""
 
-def audit_payload(payload: Any, schema: Any) -> dict:
-    """
-    Performs audit on payload, returning status and list of structural infractions.
-    """
-    errors = list(validate_structure(payload, schema))
-    return {
-        "valid": len(errors) == 0,
-        "errors": errors
-    }
+    def __init__(self, predicate: Callable[[Any], bool], error_msg: str = "validation failed"):
+        self.predicate = predicate
+        self.error_msg = error_msg
+
+    def __call__(self, value: Any) -> bool:
+        try:
+            return bool(self.predicate(value))
+        except (ValueError, TypeError, KeyError, AttributeError):
+            return False
+
+    def __rshift__(self, other: "Validator") -> "Validator":
+        # Combine two validators with AND behavior via >>
+        return Validator(
+            lambda x: self(x) and other(x),
+            f"{self.error_msg} AND {other.error_msg}"
+        )
+
+    def __or__(self, other: "Validator") -> "Validator":
+        # Combine two validators with OR behavior via |
+        return Validator(
+            lambda x: self(x) or other(x),
+            f"({self.error_msg} OR {other.error_msg})"
+        )
+
+    def __invert__(self) -> "Validator":
+        # Invert validator with NOT behavior via ~
+        return Validator(
+            lambda x: not self(x),
+            f"NOT ({self.error_msg})"
+        )
+
+is_numeric = Validator(lambda x: isinstance(x, (int, float)), "must be numeric")
+is_positive = Validator(lambda x: x > 0, "must be positive")
+is_string = Validator(lambda x: isinstance(x, str), "must be string")
+is_email = Validator(lambda x: isinstance(x, str) and "@" in x and "." in x, "must resemble email")
+
+def has_keys(*keys: str) -> Validator[dict]:
+    return Validator(
+        lambda d: isinstance(d, dict) and all(k in d for k in keys),
+        f"must contain keys {keys}"
+    )
