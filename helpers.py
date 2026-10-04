@@ -1,31 +1,42 @@
-import time
 import functools
-import random
+import time
 
-def retry_network_op(retries=3, backoff_factor=1.5, exceptions=(ConnectionError, TimeoutError)):
-    """Retry logic for network operations using exponential jittered backoff"""
+def memoize_with_expiry(ttl_seconds):
     def decorator(func):
+        cache = {}
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            attempt = 0
-            while attempt < retries:
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    attempt += 1
-                    if attempt == retries:
-                        raise e
-                    sleep_time = (backoff_factor ** attempt) + (random.random() * 0.5)
-                    time.sleep(sleep_time)
+            key = (args, frozenset(kwargs.items()))
+            now = time.monotonic()
+            if key in cache:
+                val, timestamp = cache[key]
+                if now - timestamp < ttl_seconds:
+                    return val
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
         return wrapper
     return decorator
 
-class NetworkResilience:
-    def __init__(self, limit=5):
-        self.limit = limit
-    
-    def execute(self, task, *args, **kwargs):
-        @retry_network_op(retries=self.limit)
-        def run():
-            return task(*args, **kwargs)
-        return run()
+def batch_process(iterable, size=100):
+    iterator = iter(iterable)
+    while True:
+        chunk = []
+        try:
+            for _ in range(size):
+                chunk.append(next(iterator))
+            yield chunk
+        except StopIteration:
+            if chunk:
+                yield chunk
+            break
+
+class FastLookup:
+    def __init__(self, data):
+        self._map = {hash(item): item for item in data}
+
+    def __contains__(self, item):
+        return hash(item) in self._map
+
+    def get(self, item, default=None):
+        return self._map.get(hash(item), default)
