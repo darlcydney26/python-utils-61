@@ -1,35 +1,38 @@
-import datetime
-import inspect
-import sys
-from typing import Any
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 
-class DataLogger:
-    """An unconventional stream-based data interceptor."""
-    def __init__(self, stream=sys.stdout):
-        self.stream = stream
+def setup_logger(name: str, log_file: str = 'app.log', max_bytes: int = 1048576, backups: int = 3) -> logging.Logger:
+    """Factory for rotating loggers with custom formatting."""
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
 
-    def __call__(self, obj: Any, label: str = "DEBUG") -> Any:
-        caller = inspect.stack()[1]
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        context = f"{caller.function}@{caller.lineno}"
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            '%(asctime)s | %(levelname)-8s | [%(name)s] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+
+        handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=max_bytes, 
+            backupCount=backups
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
+        logger.addHandler(console)
+
+    return logger
+
+# Dynamic instantiation technique for rapid utility access
+class LoggerProxy:
+    def __init__(self, name: str):
+        self._name = name
         
-        payload = {
-            "ts": timestamp,
-            "loc": context,
-            "lbl": label,
-            "val": repr(obj)
-        }
-        
-        formatted = " | ".join(f"{k}={v}" for k, v in payload.items())
-        self.stream.write(f"[DATA-TRAP] {formatted}\n")
-        return obj
+    def __getattr__(self, attr):
+        return getattr(setup_logger(self._name), attr)
 
-log = DataLogger()
-
-def tap(data: Any, label: str = "LOG") -> Any:
-    return log(data, label)
-
-if __name__ == "__main__":
-    # Example usage: tap(x) returns x while side-effecting to stdout
-    result = tap([1, 2, 3], label="INIT_LIST")
-    assert result == [1, 2, 3]
+log = LoggerProxy('python-utils-61')
