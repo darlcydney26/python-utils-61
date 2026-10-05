@@ -1,40 +1,38 @@
+import time
 import functools
-import itertools
-from typing import Any, Callable, Iterable, List
+import random
 
-class DataProcessor:
-    def __init__(self, data: Iterable[Any]):
-        self._data = list(data)
+def retry_operation(max_attempts=3, base_delay=1.0):
+    """Decorator applying exponential backoff with jitter to network tasks."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except (ConnectionError, TimeoutError) as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        raise e
+                    delay = (base_delay * (2 ** (attempts - 1))) + random.uniform(0, 1)
+                    time.sleep(delay)
+        return wrapper
+    return decorator
 
-    def pipeline(self, *funcs: Callable[[Any], Any]) -> List[Any]:
-        """Applies a series of functions sequentially using functional composition."""
-        def compose(f, g):
-            return lambda x: g(f(x))
-        
-        pipeline_func = functools.reduce(compose, funcs, lambda x: x)
-        return [pipeline_func(item) for item in self._data]
+class NetworkProcessor:
+    """Processing engine utilizing decorators for network robustness."""
+    def __init__(self, endpoint):
+        self.endpoint = endpoint
 
-    def batch_process(self, chunk_size: int) -> Iterable[List[Any]]:
-        """Generates partitioned segments for memory-efficient iteration."""
-        it = iter(self._data)
-        while True:
-            chunk = list(itertools.islice(it, chunk_size))
-            if not chunk:
-                break
-            yield chunk
+    @retry_operation(max_attempts=4, base_delay=0.5)
+    def send_request(self, payload):
+        # Simulated network interface logic
+        if random.random() < 0.7:
+            raise ConnectionError("Network fluctuation detected")
+        return {"status": "success", "data": payload}
 
-    @staticmethod
-    def cleanup_whitespace(text: str) -> str:
-        return " ".join(text.split())
-
-    @staticmethod
-    def to_slug(text: str) -> str:
-        return DataProcessor.cleanup_whitespace(text).lower().replace(" ", "-")
-
-    def summarize(self) -> dict:
-        """Aggregates basic stats via dictionary comprehension."""
-        return {
-            "count": len(self._data),
-            "types": {type(x).__name__ for x in self._data},
-            "samples": self._data[:3]
-        }
+if __name__ == "__main__":
+    proc = NetworkProcessor("https://api.example.com")
+    result = proc.send_request({"task": "data_sync"})
+    print(f"Result: {result}")
