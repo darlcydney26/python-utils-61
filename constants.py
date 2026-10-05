@@ -1,40 +1,40 @@
-from typing import Final, Any, Dict
-from collections import UserDict
+import enum
+from typing import Any, Dict
 
-class DataRegistry(UserDict):
-    """
-    A container that acts as a read-only registry
-    with dictionary-like attribute access.
-    """
-    def __init__(self, data: Dict[str, Any] = None):
-        super().__init__(data or {})
+class DataSchema(enum.Enum):
+    STRICT = 'strict'
+    LENIENT = 'lenient'
+    DYNAMIC = 'dynamic'
 
-    def __getattr__(self, item: str) -> Any:
-        if item in self.data:
-            return self.data[item]
-        raise AttributeError(f"Registry has no key: {item}")
+class DataSentinel:
+    """Singleton-like sentinel for missing data states."""
+    def __repr__(self):
+        return '<UNDEFINED_DATA_POINT>'
 
-    def __setattr__(self, key: str, value: Any) -> None:
-        if key == 'data':
-            super().__setattr__(key, value)
-        else:
-            raise TypeError("Registry keys are immutable after initialization")
+UNDEFINED = DataSentinel()
 
-DEFAULT_CONFIG: Final = DataRegistry({
-    "TIMEOUT": 30,
-    "RETRY_LIMIT": 3,
-    "CACHE_ENABLED": True,
-    "VERSION": "1.0.0"
-})
+def resolve_path(data: Dict[str, Any], path: str, default: Any = UNDEFINED) -> Any:
+    """Recursive path resolution with unconventional dot-notation."""
+    keys = path.split('.')
+    current = data
+    try:
+        for key in keys:
+            if isinstance(current, dict):
+                current = current.get(key, UNDEFINED)
+            else:
+                return default
+            if current is UNDEFINED:
+                return default
+        return current
+    except Exception:
+        return default
 
-ERROR_CODES: Final[Dict[str, int]] = {
-    "SUCCESS": 200,
-    "BAD_REQUEST": 400,
-    "UNAUTHORIZED": 401,
-    "FORBIDDEN": 403,
-    "NOT_FOUND": 404,
-    "SERVER_ERROR": 500
+def batch_transform(data: list, func: callable) -> list:
+    """Functional pipe application for list-based data."""
+    return [func(item) for item in data if item is not None]
+
+DATA_CONSTANTS = {
+    'VERSION': '1.0.0',
+    'TIMEOUT': 30,
+    'SCHEMAS': [s.value for s in DataSchema]
 }
-
-def get_status_message(code: int) -> str:
-    return {v: k for k, v in ERROR_CODES.items()}.get(code, "UNKNOWN_ERROR")
