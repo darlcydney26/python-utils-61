@@ -1,45 +1,35 @@
-import functools
 import time
-import itertools
-from typing import Callable, Any, Iterable
+import random
+import functools
 
-def retry_on_failure(retries: int = 3, delay: float = 1.0):
-    def decorator(func: Callable):
+def retry(max_attempts=3, delay=1, backoff=2):
+    def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            for attempt in range(retries):
+            current_delay = delay
+            for attempt in range(1, max_attempts + 1):
                 try:
                     return func(*args, **kwargs)
-                except Exception:
-                    if attempt == retries - 1: raise
-                    time.sleep(delay)
+                except Exception as e:
+                    if attempt == max_attempts:
+                        raise e
+                    time.sleep(current_delay + random.uniform(0, 0.1))
+                    current_delay *= backoff
         return wrapper
     return decorator
 
-def chunked_iterable(iterable: Iterable, size: int) -> Iterable:
-    it = iter(iterable)
-    return iter(lambda: list(itertools.islice(it, size)), [])
+def execute_with_jitter(func, *args, **kwargs):
+    """
+    experimental execution wrapper with randomized jitter
+    """
+    @retry(max_attempts=5, delay=0.5)
+    def managed_op():
+        return func(*args, **kwargs)
+    return managed_op()
 
-def compose(*functions: Callable) -> Callable:
-    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
-
-def deep_flatten(items: Iterable) -> Iterable:
-    for x in items:
-        if isinstance(x, (list, tuple)):
-            yield from deep_flatten(x)
-        else:
-            yield x
-
-def memoize_with_expiry(ttl: int = 60):
-    cache = {}
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args):
-            now = time.time()
-            if args in cache and (now - cache[args][1]) < ttl:
-                return cache[args][0]
-            result = func(*args)
-            cache[args] = (result, now)
-            return result
-        return wrapper
-    return decorator
+if __name__ == '__main__':
+    @retry(max_attempts=3)
+    def unstable_network_call():
+        if random.random() < 0.7:
+            raise ConnectionError("Transient network failure")
+        return "success"
