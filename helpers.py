@@ -1,16 +1,26 @@
 import functools
-import time
+from typing import Any, Callable, Dict, Optional
 
-def memoize_with_expiry(ttl_seconds):
-    def decorator(func):
-        cache = {}
+def shadow_dict(data: Dict[Any, Any], keys: list, default: Any = None) -> Dict[Any, Any]:
+    """Extracts specific keys from a dictionary with fallback."""
+    return {k: data.get(k, default) for k in keys}
+
+def chain_pipeline(data: Any, *funcs: Callable) -> Any:
+    """Sequential application of functions to data."""
+    return functools.reduce(lambda acc, f: f(acc), funcs, data)
+
+def memoize_with_expiry(ttl: int = 60):
+    """Cache wrapper with basic timestamp-based expiration."""
+    cache = {}
+    def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
-            now = time.monotonic()
+            import time
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.time()
             if key in cache:
-                val, timestamp = cache[key]
-                if now - timestamp < ttl_seconds:
+                val, ts = cache[key]
+                if now - ts < ttl:
                     return val
             result = func(*args, **kwargs)
             cache[key] = (result, now)
@@ -18,25 +28,10 @@ def memoize_with_expiry(ttl_seconds):
         return wrapper
     return decorator
 
-def batch_process(iterable, size=100):
-    iterator = iter(iterable)
-    while True:
-        chunk = []
-        try:
-            for _ in range(size):
-                chunk.append(next(iterator))
-            yield chunk
-        except StopIteration:
-            if chunk:
-                yield chunk
-            break
-
-class FastLookup:
-    def __init__(self, data):
-        self._map = {hash(item): item for item in data}
-
-    def __contains__(self, item):
-        return hash(item) in self._map
-
-    def get(self, item, default=None):
-        return self._map.get(hash(item), default)
+def deep_flatten(nested: list) -> list:
+    """Recursive list flattening using generator expression."""
+    for item in nested:
+        if isinstance(item, list):
+            yield from deep_flatten(item)
+        else:
+            yield item
