@@ -1,40 +1,38 @@
-import enum
-from typing import Any, Dict
+import sys
+import os
+from pathlib import Path
+from typing import Final, Dict, Any
 
-class DataSchema(enum.Enum):
-    STRICT = 'strict'
-    LENIENT = 'lenient'
-    DYNAMIC = 'dynamic'
+# Dynamic system paths configuration for cross-platform support
+BASE_DIR: Final[Path] = Path(os.path.abspath(os.path.dirname(__file__))).parent
+LOG_DIR: Final[Path] = BASE_DIR / 'logs'
+DATA_DIR: Final[Path] = BASE_DIR / 'data'
 
-class DataSentinel:
-    """Singleton-like sentinel for missing data states."""
-    def __repr__(self):
-        return '<UNDEFINED_DATA_POINT>'
+# Ensure directories exist upon import
+for directory in [LOG_DIR, DATA_DIR]:
+    directory.mkdir(parents=True, exist_ok=True)
 
-UNDEFINED = DataSentinel()
+# Universal encoding and timeouts
+DEFAULT_ENCODING: Final[str] = 'utf-8'
+REQUEST_TIMEOUT: Final[int] = 30
 
-def resolve_path(data: Dict[str, Any], path: str, default: Any = UNDEFINED) -> Any:
-    """Recursive path resolution with unconventional dot-notation."""
-    keys = path.split('.')
-    current = data
-    try:
-        for key in keys:
-            if isinstance(current, dict):
-                current = current.get(key, UNDEFINED)
-            else:
-                return default
-            if current is UNDEFINED:
-                return default
-        return current
-    except Exception:
-        return default
-
-def batch_transform(data: list, func: callable) -> list:
-    """Functional pipe application for list-based data."""
-    return [func(item) for item in data if item is not None]
-
-DATA_CONSTANTS = {
-    'VERSION': '1.0.0',
-    'TIMEOUT': 30,
-    'SCHEMAS': [s.value for s in DataSchema]
+# Minimalistic registry for shared configuration states
+GLOBAL_REGISTRY: Dict[str, Any] = {
+    'initialized': False,
+    'version': '0.1.0',
+    'platform': sys.platform,
+    'debug_mode': os.getenv('DEBUG_MODE', 'False').lower() == 'true'
 }
+
+# Sentinel object for missing keys in recursive structures
+_MISSING = object()
+
+def get_registry_item(key: str, default: Any = None) -> Any:
+    """Accessor for global configuration constants."""
+    return GLOBAL_REGISTRY.get(key, default)
+
+# Supported data formats for processor modules
+SUPPORTED_FORMATS: Final[tuple] = ('.json', '.yaml', '.toml', '.csv')
+
+# Standard HTTP success codes for handler logic
+HTTP_SUCCESS_CODES: Final[set] = {200, 201, 202, 204}
