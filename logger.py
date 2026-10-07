@@ -2,37 +2,37 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-def setup_logger(name: str, log_file: str = 'app.log', max_bytes: int = 1048576, backups: int = 3) -> logging.Logger:
-    """Factory for rotating loggers with custom formatting."""
+def setup_logger(name: str, log_file: str = 'app.log', level: int = logging.INFO):
+    """ Initialize a rotating logger instance """
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(level)
 
     if not logger.handlers:
-        formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | [%(name)s] %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+        # Ensure directory existence
+        log_dir = os.path.dirname(log_file)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir)
 
+        # Rotation setup: 5MB files, keep 3 backups
         handler = RotatingFileHandler(
             log_file, 
-            maxBytes=max_bytes, 
-            backupCount=backups
+            maxBytes=5*1024*1024, 
+            backupCount=3
+        )
+        
+        formatter = logging.Formatter(
+            '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
         )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-
+        
+        # Also output to stdout for visibility
         console = logging.StreamHandler()
         console.setFormatter(formatter)
         logger.addHandler(console)
 
     return logger
 
-# Dynamic instantiation technique for rapid utility access
-class LoggerProxy:
-    def __init__(self, name: str):
-        self._name = name
-        
-    def __getattr__(self, attr):
-        return getattr(setup_logger(self._name), attr)
-
-log = LoggerProxy('python-utils-61')
+# Quick access factory instance
+logger = setup_logger('python-utils-61')
