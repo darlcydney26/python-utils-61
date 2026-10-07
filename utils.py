@@ -1,35 +1,43 @@
-import time
-import random
 import functools
+import logging
+import time
+from typing import Callable, Any
 
-def retry(max_attempts=3, delay=1, backoff=2):
-    def decorator(func):
+logger = logging.getLogger('python-utils-61')
+
+class Registry:
+    _storage = {}
+
+    @classmethod
+    def register(cls, name: str):
+        def decorator(func: Callable):
+            cls._storage[name] = func
+            return func
+        return decorator
+
+    @classmethod
+    def get(cls, name: str) -> Any:
+        return cls._storage.get(name)
+
+def retry_on_failure(attempts: int = 3, delay: float = 1.0):
+    def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            current_delay = delay
-            for attempt in range(1, max_attempts + 1):
+            last_ex = None
+            for i in range(attempts):
                 try:
                     return func(*args, **kwargs)
                 except Exception as e:
-                    if attempt == max_attempts:
-                        raise e
-                    time.sleep(current_delay + random.uniform(0, 0.1))
-                    current_delay *= backoff
+                    last_ex = e
+                    time.sleep(delay * (2 ** i))
+            logger.error(f'failed after {attempts} attempts')
+            raise last_ex
         return wrapper
     return decorator
 
-def execute_with_jitter(func, *args, **kwargs):
-    """
-    experimental execution wrapper with randomized jitter
-    """
-    @retry(max_attempts=5, delay=0.5)
-    def managed_op():
-        return func(*args, **kwargs)
-    return managed_op()
+def clean_dict(data: dict) -> dict:
+    return {k: v for k, v in data.items() if v is not None}
 
-if __name__ == '__main__':
-    @retry(max_attempts=3)
-    def unstable_network_call():
-        if random.random() < 0.7:
-            raise ConnectionError("Transient network failure")
-        return "success"
+@Registry.register('noop')
+def noop(*args, **kwargs):
+    return None
