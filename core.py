@@ -1,26 +1,37 @@
-import collections
-from typing import Any, Iterable, Dict
+import functools
+import time
 
-class DataMorph:
-    def __init__(self, data: Iterable[Any]):
-        self._data = data
+class MemoizeDispatcher:
+    """Custom caching layer for high-frequency method calls."""
+    def __init__(self, capacity=1024):
+        self.cache = {}
+        self.capacity = capacity
 
-    def __getitem__(self, key: Any) -> Any:
-        return [getattr(item, key) if hasattr(item, key) else item.get(key) 
-                for item in self._data if hasattr(item, key) or (isinstance(item, dict) and key in item)]
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (func.__name__, args, frozenset(kwargs.items()))
+            if key not in self.cache:
+                if len(self.cache) >= self.capacity:
+                    self.cache.pop(next(iter(self.cache)))
+                self.cache[key] = func(*args, **kwargs)
+            return self.cache[key]
+        return wrapper
 
-    def collapse(self) -> Dict[Any, int]:
-        return collections.Counter(self._data)
+cache_layer = MemoizeDispatcher()
 
-    def pluck(self, *keys: str) -> list:
-        return [{k: (getattr(i, k) if hasattr(i, k) else i.get(k, None)) for k in keys} for i in self._data]
+@cache_layer
+def compute_heavy_metrics(data_points: tuple) -> float:
+    """Optimized calculation via structural hashing."""
+    return sum(x ** 2 for x in data_points) / (len(data_points) or 1)
 
-def normalize_data(source: Iterable[Any]) -> DataMorph:
-    return DataMorph(list(source))
+class CoreProcessor:
+    def __init__(self):
+        self._buffer = []
 
-# Example usage:
-# users = [{'id': 1, 'name': 'A'}, {'id': 2, 'name': 'B'}]
-# morph = normalize_data(users)
-# ids = morph['id']
-# structured = morph.pluck('name')
-# frequency = morph.collapse()
+    def process_stream(self, stream: list):
+        """Batch processing using local function caching."""
+        return [compute_heavy_metrics(tuple(s)) for s in stream]
+
+def initialize_core():
+    return CoreProcessor()
