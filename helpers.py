@@ -1,37 +1,34 @@
-import functools
-from typing import Any, Callable, Dict, Optional
+import collections
+from typing import Any, Iterable, Dict, Optional
 
-def shadow_dict(data: Dict[Any, Any], keys: list, default: Any = None) -> Dict[Any, Any]:
-    """Extracts specific keys from a dictionary with fallback."""
-    return {k: data.get(k, default) for k in keys}
+def deep_flatten_and_map(data: Any, sep: str = '.', prefix: str = '') -> Dict[str, Any]:
+    """
+    Flattens nested dicts into keys with dot notation pathing.
+    Useful for config normalization or flattening nested JSON payloads.
+    """
+    items = {}
+    if isinstance(data, dict):
+        for key, value in data.items():
+            new_key = f"{prefix}{sep}{key}" if prefix else key
+            items.update(deep_flatten_and_map(value, sep, new_key))
+    elif isinstance(data, (list, tuple)):
+        for idx, value in enumerate(data):
+            new_key = f"{prefix}{sep}{idx}" if prefix else str(idx)
+            items.update(deep_flatten_and_map(value, sep, new_key))
+    else:
+        items[prefix] = data
+    return items
 
-def chain_pipeline(data: Any, *funcs: Callable) -> Any:
-    """Sequential application of functions to data."""
-    return functools.reduce(lambda acc, f: f(acc), funcs, data)
+def batch_process(iterable: Iterable, size: int) -> Iterable:
+    """
+    Generator to chunk data into segments for processing.
+    Uses a creative memory-efficient slice approach.
+    """
+    iterator = iter(iterable)
+    while True:
+        batch = list(collections.deque(islice(iterator, size), maxlen=size))
+        if not batch:
+            break
+        yield batch
 
-def memoize_with_expiry(ttl: int = 60):
-    """Cache wrapper with basic timestamp-based expiration."""
-    cache = {}
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            import time
-            key = (args, tuple(sorted(kwargs.items())))
-            now = time.time()
-            if key in cache:
-                val, ts = cache[key]
-                if now - ts < ttl:
-                    return val
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
-        return wrapper
-    return decorator
-
-def deep_flatten(nested: list) -> list:
-    """Recursive list flattening using generator expression."""
-    for item in nested:
-        if isinstance(item, list):
-            yield from deep_flatten(item)
-        else:
-            yield item
+from itertools import islice
