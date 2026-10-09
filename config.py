@@ -1,33 +1,54 @@
 import os
+import json
 from typing import Any, Dict
 
-class AppConfig:
-    def __init__(self, env_prefix: str = 'PYU61_'):
-        self._data: Dict[str, Any] = {}
-        self._prefix = env_prefix
-        self._load_from_env()
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any], prefix: str = "APP_"):
+        self._defaults = defaults
+        self._prefix = prefix
 
-    def _load_from_env(self) -> None:
-        for key, value in os.environ.items():
-            if key.startswith(self._prefix):
-                clean_key = key[len(self._prefix):].lower()
-                self._data[clean_key] = self._cast_value(value)
+    def __getattr__(self, name: str) -> Any:
+        env_key = f"{self._prefix}{name.upper()}"
+        val = os.environ.get(env_key)
 
-    def _cast_value(self, val: str) -> Any:
-        if val.lower() in ('true', 'yes'): return True
-        if val.lower() in ('false', 'no'): return False
-        try: return int(val)
-        except ValueError:
-            try: return float(val)
-            except ValueError: return val
+        if name not in self._defaults and val is None:
+            raise AttributeError(f"Configuration parameter '{name}' is not defined")
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key.lower(), default)
+        default_val = self._defaults.get(name)
+
+        if isinstance(default_val, dict):
+            if val:
+                try:
+                    return ConfigLoader(json.loads(val), prefix=f"{env_key}_")
+                except json.JSONDecodeError:
+                    pass
+            return ConfigLoader(default_val, prefix=f"{env_key}_")
+
+        if val is not None:
+            if default_val is not None:
+                try:
+                    t = type(default_val)
+                    if t is bool:
+                        return val.lower() in ("true", "1", "yes", "on")
+                    return t(val)
+                except (ValueError, TypeError):
+                    return val
+            return val
+
+        return default_val
 
     def __getitem__(self, key: str) -> Any:
-        return self._data[key.lower()]
+        try:
+            return getattr(self, key)
+        except AttributeError as err:
+            raise KeyError(str(err)) from err
 
-    def __repr__(self) -> str:
-        return f'<AppConfig keys={list(self._data.keys())}>'
-
-instance = AppConfig()
+    def get_all(self) -> Dict[str, Any]:
+        result = {}
+        for key, val in self._defaults.items():
+            resolved = getattr(self, key)
+            if isinstance(resolved, ConfigLoader):
+                result[key] = resolved.get_all()
+            else:
+                result[key] = resolved
+        return result
