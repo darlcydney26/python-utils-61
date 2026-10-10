@@ -2,32 +2,28 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-def setup_dynamic_logger(name: str, log_dir: str = 'logs') -> logging.Logger:
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-
+def get_logger(name='python-utils-61', log_file='app.log', level=logging.INFO):
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-
+    logger.setLevel(level)
+    
     if not logger.handlers:
-        formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
-        )
-
-        file_path = os.path.join(log_dir, f'{name}.log')
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        
+        # Creative rotating handler with capacity check
         handler = RotatingFileHandler(
-            file_path, 
+            log_file, 
             maxBytes=1024 * 1024 * 5, 
             backupCount=3
         )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-
+        
+        # Console stream as secondary output
         console = logging.StreamHandler()
         console.setFormatter(formatter)
         logger.addHandler(console)
-
+    
     return logger
 
-# Quick test instance
-root_logger = setup_dynamic_logger('python-utils-61')
+# Instantiate singleton logger
+logger = get_logger()
