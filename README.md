@@ -1,13 +1,13 @@
 # python-utils-61
 
-A comprehensive collection of production-ready Python utility functions designed to streamline daily development tasks. This library focuses on performance, readability, and minimizing boilerplate code for common operations.
+A comprehensive collection of production-ready Python utility functions designed to streamline daily development tasks. This library bridges common gaps in the standard library by providing robust helpers for data processing, file I/O, and string manipulation.
 
 ## Features
 
-*   **Robust File Handling:** Simplify directory traversal, file system monitoring, and cross-platform path manipulation with a high-level API.
-*   **Time & Date Helpers:** Effortless timezone-aware conversions and natural language formatting for human-readable timestamps.
-*   **Data Transformation:** Efficient batch processing tools for deep-merging dictionaries and flattening complex nested data structures.
-*   **Execution Wrappers:** Lightweight decorators for retry logic, exponential backoff, and execution time profiling of blocking operations.
+*   **Robust File Operations:** Simplifies directory synchronization and recursive file pattern matching with intuitive one-liners.
+*   **Data Validation Helpers:** Includes high-performance decorators to enforce schema constraints on dictionaries and JSON payloads.
+*   **Concurrency Utilities:** Provides thread-safe decorators and easy-to-implement rate limiting for asynchronous API interactions.
+*   **String Normalization:** Advanced tools for slugification, fuzzy matching, and multi-encoding text sanitization.
 
 ## Installation
 
@@ -17,36 +17,36 @@ Install the package via pip:
 pip install python-utils-61
 ```
 
-Or add it to your project using Poetry:
+Or add it to your `requirements.txt`:
 
-```bash
-poetry add python-utils-61
+```text
+python-utils-61>=1.0.0
 ```
 
-## Usage
+## Basic Usage
 
-Easily incorporate modular utilities into your existing codebase. Here is an example of using the retry decorator to handle flaky network requests:
+Import the desired utilities directly to simplify your boilerplate code:
 
 ```python
-from pyutils_61.decorators import retry
+from pyutils61.file_tools import secure_write
+from pyutils61.validation import validate_schema
 
-@retry(attempts=3, delay=2)
-def fetch_data(url):
-    # This will automatically retry on connection failures
-    return requests.get(url).json()
+# Securely write JSON data to a file
+data = {"status": "success", "id": 101}
+secure_write("config.json", data)
 
-# Merging complex dictionaries
-from pyutils_61.data import deep_merge
-
-config = deep_merge(base_cfg, user_cfg)
+# Enforce a schema on incoming data
+schema = {"id": int, "status": str}
+if validate_schema(data, schema):
+    print("Data structure verified.")
 ```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request for any bug fixes or performance enhancements. For major changes, please open an issue first to discuss the proposed updates.
 
 ## License
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Distributed under the MIT License. See `LICENSE` for more information.
+
+---
+
+*Developed by Developer | Maintained with ❤️ for the Python community.*
