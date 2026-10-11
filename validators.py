@@ -1,69 +1,67 @@
-"""Flexible validator composition module using operator overloading."""
+"""Validation pipeline utilities with functional composition."""
 
-import re
-from typing import TypeVar, Generic, Callable, Any
+from typing import Any, Callable, Generic, List, Optional, TypeVar, Union
 
 T = TypeVar("T")
+E = TypeVar("E")
+
+
+class ValidationResult(Generic[T, E]):
+    """Encapsulates the outcome of a validation pipeline pass."""
+
+    def __init__(self, value: T, errors: Optional[List[E]] = None) -> None:
+        self.value: T = value
+        self.errors: List[E] = errors or []
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if no validation errors occurred."""
+        return len(self.errors) == 0
+
+    def __repr__(self) -> str:
+        return f"<ValidationResult valid={self.is_valid} errors={self.errors}>"
 
 
 class Validator(Generic[T]):
-    """A composable validation wrapper supporting bitwise operators for rule chaining.
+    """Composable validator leveraging functional pipeline checks."""
 
-    Attributes:
-        predicate: The underlying callable evaluating input values.
-        err_msg: Explanation message when validation fails.
-    """
+    def __init__(self, *rules: Callable[[T], Union[bool, str]]) -> None:
+        """Initialize validator with a sequence of predicate rules."""
+        self._rules: List[Callable[[T], Union[bool, str]]] = list(rules)
 
-    def __init__(self, predicate: Callable[[T], bool], err_msg: str = "Validation failed") -> None:
-        self.predicate: Callable[[T], bool] = predicate
-        self.err_msg: str = err_msg
+    def pipe(self, rule: Callable[[T], Union[bool, str]]) -> "Validator[T]":
+        """Chain a new validation rule to the pipeline."""
+        return Validator(*self._rules, rule)
 
-    def __call__(self, value: T) -> bool:
-        """Evaluate the value against the stored predicate safely."""
-        try:
-            return bool(self.predicate(value))
-        except Exception:
-            return False
-
-    def validate_or_raise(self, value: T) -> T:
-        """Validate value or raise ValueError with custom error explanation."""
-        if not self(value):
-            raise ValueError(f"{self.err_msg}: {value!r}")
-        return value
-
-    def __and__(self, other: "Validator[T]") -> "Validator[T]":
-        """Combine two validators using logical AND (&)."""
-        return Validator(
-            lambda v: self(v) and other(v),
-            f"({self.err_msg} AND {other.err_msg})"
-        )
-
-    def __or__(self, other: "Validator[T]") -> "Validator[T]":
-        """Combine two validators using logical OR (|)."""
-        return Validator(
-            lambda v: self(v) or other(v),
-            f"({self.err_msg} OR {other.err_msg})"
-        )
-
-    def __invert__(self) -> "Validator[T]":
-        """Negate the validator logic using bitwise NOT (~)."""
-        return Validator(
-            lambda v: not self(v),
-            f"NOT({self.err_msg})"
-        )
+    def evaluate(self, candidate: T) -> ValidationResult[T, str]:
+        """Execute all piped validation rules against the target candidate."""
+        failures: List[str] = []
+        for idx, rule in enumerate(self._rules):
+            res = rule(candidate)
+            if res is False:
+                failures.append(f"Rule #{idx + 1} ({rule.__name__}) failed")
+            elif isinstance(res, str):
+                failures.append(res)
+        return ValidationResult(candidate, failures)
 
 
-def matches_regex(pattern: str) -> Validator[str]:
-    """Create a validator checking if a string matches a given regex pattern."""
-    compiled = re.compile(pattern)
-    return Validator(lambda s: bool(compiled.search(str(s))), f"matches pattern '{pattern}'")
+def is_type(expected_type: type) -> Callable[[Any], Union[bool, str]]:
+    """Rule factory verifying candidate instances match expected type."""
+
+    def check(val: Any) -> Union[bool, str]:
+        if isinstance(val, expected_type):
+            return True
+        return f"Expected type {expected_type.__name__}, got {type(val).__name__}"
+
+    return check
 
 
-def in_range(min_val: float, max_val: float) -> Validator[float]:
-    """Create a validator checking if a number falls within an inclusive numeric range."""
-    return Validator(lambda x: min_val <= x <= max_val, f"value in range [{min_val}, {max_val}]")
+def in_range(low: float, high: float) -> Callable[[Union[int, float]], Union[bool, str]]:
+    """Rule factory checking numeric boundaries inclusively."""
 
+    def check(val: Union[int, float]) -> Union[bool, str]:
+        if low <= val <= high:
+            return True
+        return f"Value {val} outside bounds [{low}, {high}]"
 
-def is_type(expected_type: type) -> Validator[Any]:
-    """Create a validator checking if an object is an instance of expected_type."""
-    return Validator(lambda x: isinstance(x, expected_type), f"is instance of {expected_type.__name__}")
+    return check
