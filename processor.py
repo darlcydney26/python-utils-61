@@ -1,47 +1,55 @@
-import sys
-from typing import Generator, Any, Callable, Dict, Tuple
+import functools
+import inspect
+from typing import Any, Callable, Dict, List, TypeVar
 
-def validator_pipeline(*validators: Callable[[Any], bool]) -> Callable[[Any], Tuple[bool, list]]:
-    def validate(data: Any) -> Tuple[bool, list]:
-        errors = []
-        for val_func in validators:
-            try:
-                if not val_func(data):
-                    errors.append("failed constraint validation")
-            except Exception as e:
-                errors.append(f"exception raised: {str(e)}")
-        return len(errors) == 0, errors
-    return validate
+T = TypeVar("T")
 
-def main_processing_loop(data_stream: Generator[Dict[str, Any], None, None], validation_rules: Dict[str, Callable[[Any], bool]]) -> Generator[Dict[str, Any], None, None]:
-    """
-    Processes incoming payloads utilizing functional pipeline validators
-    to yield sanitized results or specific failure records.
-    """
-    for index, item in enumerate(data_stream):
-        corrupted = False
-        reasons = []
-        for key, rule in validation_rules.items():
-            val = item.get(key)
-            success, errors = validator_pipeline(rule)(val)
-            if not success:
-                corrupted = True
-                reasons.extend([f"field '{key}' at record {index}: {err}" for err in errors])
-        if not corrupted:
-            item["_status"] = "valid_processed"
-            yield item
-        else:
-            yield {"_status": "invalid_dropped", "_index": index, "errors": reasons}
+class ProcessingRegistry(type):
+    """Metaclass that automatically reorganizes processing stages by order."""
+    _steps: Dict[str, List[Callable[[Any], Any]]] = {}
 
-if __name__ == '__main__':
-    test_rules = {
-        "id": lambda x: isinstance(x, int) and x > 0,
-        "tag": lambda x: isinstance(x, str) and len(x) > 2
-    }
-    test_data = (d for d in [
-        {"id": 101, "tag": "prod"},
-        {"id": -1, "tag": "test"},
-        {"id": 102, "tag": "hi"}
-    ])
-    for output in main_processing_loop(test_data, test_rules):
-        print(output)
+    def __init__(cls, name, bases, attrs):
+        super().__init__(name, bases, attrs)
+        cls._steps[name] = []
+        for attr_val in attrs.values():
+            if hasattr(attr_val, "_stage"):
+                cls._steps[name].append(attr_val)
+        cls._steps[name].sort(key=lambda fn: getattr(fn, "_stage"))
+
+class ReorganizedProcessor(metaclass=ProcessingRegistry):
+    """Base pipeline processor with dynamic stage registration."""
+
+    @classmethod
+    def stage(cls, order: int):
+        def decorator(func: Callable[[T], T]) -> Callable[[T], T]:
+            setattr(func, "_stage", order)
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                return func(*args, **kwargs)
+            setattr(wrapper, "_stage", order)
+            return wrapper
+        return decorator
+
+    def execute(self, initial_data: Any) -> Any:
+        current = initial_data
+        pipeline = self._steps.get(self.__class__.__name__, [])
+        for step in pipeline:
+            sig = inspect.signature(step)
+            if len(sig.parameters) > 1:
+                current = step(self, current)
+            else:
+                current = step(current)
+        return current
+
+class DataProcessor(ReorganizedProcessor):
+    @ReorganizedProcessor.stage(10)
+    def sanitize_input(self, data: str) -> str:
+        return data.strip().replace("\t", " ")
+
+    @ReorganizedProcessor.stage(20)
+    def normalize_spaces(self, data: str) -> str:
+        return " ".join(filter(None, data.split(" ")))
+
+    @ReorganizedProcessor.stage(30)
+    def wrap_result(self, data: str) -> str:
+        return f"[processed] {data}"
