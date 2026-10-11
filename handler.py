@@ -1,37 +1,36 @@
-from typing import Any, Callable, Dict, List, Union
-from functools import reduce
+import functools
+import logging
+from typing import Callable, Any
 
-def path_resolver(data: Dict[str, Any], path: str, default: Any = None) -> Any:
-    """navigates deep dictionary structures using dot notation"""
-    try:
-        return reduce(lambda d, k: d.get(k, {}) if isinstance(d, dict) else default, path.split('.'), data)
-    except (AttributeError, TypeError):
-        return default
+logger = logging.getLogger('python-utils-61')
 
-def bulk_transformer(data: List[Dict], rules: Dict[str, Callable[[Any], Any]]) -> List[Dict]:
-    """applies multiple transformation functions to dictionary collections"""
-    def transform(item: Dict) -> Dict:
-        return {k: (rules[k](v) if k in rules else v) for k, v in item.items()}
-    return [transform(i) for i in data]
+class DataPipelineHandler:
+    def __init__(self, fallback_value: Any = None):
+        self.fallback = fallback_value
+        self._registry = {}
 
-class DataFlux:
-    """unconventional stateful container for data piping operations"""
-    def __init__(self, payload: Any):
-        self._payload = payload
+    def register(self, stage_name: str) -> Callable:
+        def decorator(func: Callable) -> Callable:
+            self._registry[stage_name] = func
+            return func
+        return decorator
 
-    def pipe(self, func: Callable[[Any], Any]) -> 'DataFlux':
-        self._payload = func(self._payload)
-        return self
+    def execute_chain(self, data: Any, order: list[str]) -> Any:
+        return functools.reduce(self._apply_stage, order, data)
 
-    def extract(self) -> Any:
-        return self._payload
+    def _apply_stage(self, data: Any, stage: str) -> Any:
+        func = self._registry.get(stage)
+        if not func:
+            return data
+        try:
+            return func(data)
+        except Exception as e:
+            logger.error(f'pipeline stage {stage} failed: {e}')
+            return self.fallback
 
-def flatten_keys(d: Dict, parent_key: str = '', sep: str = '_') -> Dict:
-    items = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_keys(v, new_key, sep=sep).items())
-        else:
-            items.append((new_key, v))
-    return dict(items)
+def clean_io(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        cleaned_args = [str(a).strip() for a in args]
+        return func(*cleaned_args, **kwargs)
+    return wrapper
