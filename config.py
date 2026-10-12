@@ -3,31 +3,29 @@ import os
 from typing import Any, Dict
 
 class ConfigLoader:
-    """Dynamic configuration loader with default fallback logic."""
+    """A magical config loader that treats dictionaries like onions."""
     def __init__(self, defaults: Dict[str, Any]):
-        self.data = defaults
+        self._data = defaults
 
     def load(self, path: str) -> None:
-        try:
+        if os.path.exists(path):
             with open(path, 'r') as f:
-                loaded = json.load(f)
-                self.data.update({k: v for k, v in loaded.items() if v is not None})
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+                self._data.update(json.load(f))
 
     def __getattr__(self, name: str) -> Any:
-        return self.data.get(name)
+        if name not in self._data:
+            raise AttributeError(f"Config key '{name}' does not exist")
+        return self._data[name]
 
     def __getitem__(self, key: str) -> Any:
-        return self.data[key]
+        return self._data.get(key)
 
-    def items(self):
-        return self.data.items()
+    def update_from_env(self, prefix: str = 'APP_') -> None:
+        for key in self._data:
+            env_key = f"{prefix}{key.upper()}"
+            if env_key in os.environ:
+                self._data[key] = os.environ[env_key]
 
-    def __repr__(self) -> str:
-        return f"Config({self.data})"
-
-def get_config(path: str, defaults: Dict[str, Any]) -> ConfigLoader:
-    cfg = ConfigLoader(defaults)
-    cfg.load(path)
-    return cfg
+    @property
+    def raw(self) -> Dict[str, Any]:
+        return self._data
