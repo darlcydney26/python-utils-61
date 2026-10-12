@@ -1,55 +1,40 @@
 import functools
-import inspect
-from typing import Any, Callable, Dict, List, TypeVar
+import collections
 
-T = TypeVar("T")
+class DataProcessor:
+    def __init__(self, cache_limit=128):
+        self.cache = collections.OrderedDict()
+        self.limit = cache_limit
 
-class ProcessingRegistry(type):
-    """Metaclass that automatically reorganizes processing stages by order."""
-    _steps: Dict[str, List[Callable[[Any], Any]]] = {}
+    def memoized_transform(self, func):
+        @functools.wraps(func)
+        def wrapper(*args):
+            key = hash(args)
+            if key in self.cache:
+                self.cache.move_to_end(key)
+                return self.cache[key]
+            result = func(*args)
+            self.cache[key] = result
+            if len(self.cache) > self.limit:
+                self.cache.popitem(last=False)
+            return result
+        return wrapper
 
-    def __init__(cls, name, bases, attrs):
-        super().__init__(name, bases, attrs)
-        cls._steps[name] = []
-        for attr_val in attrs.values():
-            if hasattr(attr_val, "_stage"):
-                cls._steps[name].append(attr_val)
-        cls._steps[name].sort(key=lambda fn: getattr(fn, "_stage"))
+    @staticmethod
+    def bulk_process(data, transform_func, chunk_size=1000):
+        return [transform_func(data[i:i + chunk_size]) for i in range(0, len(data), chunk_size)]
 
-class ReorganizedProcessor(metaclass=ProcessingRegistry):
-    """Base pipeline processor with dynamic stage registration."""
+    def batch_optimize(self, iterable):
+        """
+        Generator-based memory efficiency optimization.
+        """
+        buffer = []
+        for item in iterable:
+            buffer.append(item)
+            if len(buffer) >= 500:
+                yield tuple(buffer)
+                buffer.clear()
+        if buffer:
+            yield tuple(buffer)
 
-    @classmethod
-    def stage(cls, order: int):
-        def decorator(func: Callable[[T], T]) -> Callable[[T], T]:
-            setattr(func, "_stage", order)
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                return func(*args, **kwargs)
-            setattr(wrapper, "_stage", order)
-            return wrapper
-        return decorator
-
-    def execute(self, initial_data: Any) -> Any:
-        current = initial_data
-        pipeline = self._steps.get(self.__class__.__name__, [])
-        for step in pipeline:
-            sig = inspect.signature(step)
-            if len(sig.parameters) > 1:
-                current = step(self, current)
-            else:
-                current = step(current)
-        return current
-
-class DataProcessor(ReorganizedProcessor):
-    @ReorganizedProcessor.stage(10)
-    def sanitize_input(self, data: str) -> str:
-        return data.strip().replace("\t", " ")
-
-    @ReorganizedProcessor.stage(20)
-    def normalize_spaces(self, data: str) -> str:
-        return " ".join(filter(None, data.split(" ")))
-
-    @ReorganizedProcessor.stage(30)
-    def wrap_result(self, data: str) -> str:
-        return f"[processed] {data}"
+processor = DataProcessor()
