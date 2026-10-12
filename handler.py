@@ -1,36 +1,41 @@
 import functools
-import logging
-from typing import Callable, Any
+import time
+import collections
 
-logger = logging.getLogger('python-utils-61')
+class MemoizedProcessor:
+    def __init__(self, limit=1024):
+        self.cache = collections.OrderedDict()
+        self.limit = limit
 
-class DataPipelineHandler:
-    def __init__(self, fallback_value: Any = None):
-        self.fallback = fallback_value
-        self._registry = {}
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            if key in self.cache:
+                self.cache.move_to_end(key)
+                return self.cache[key]
+            
+            result = func(*args, **kwargs)
+            self.cache[key] = result
+            self.cache.move_to_end(key)
+            
+            if len(self.cache) > self.limit:
+                self.cache.popitem(last=False)
+            return result
+        return wrapper
 
-    def register(self, stage_name: str) -> Callable:
-        def decorator(func: Callable) -> Callable:
-            self._registry[stage_name] = func
-            return func
-        return decorator
+class CoreHandler:
+    """Optimized handler using LRU caching strategy."""
+    @MemoizedProcessor(limit=512)
+    def compute_heavy_task(self, data_point: int) -> int:
+        # Simulate intensive computation
+        time.sleep(0.01)
+        return data_point ** 2 + (data_point % 7)
 
-    def execute_chain(self, data: Any, order: list[str]) -> Any:
-        return functools.reduce(self._apply_stage, order, data)
+    def batch_process(self, data_list: list) -> list:
+        return [self.compute_heavy_task(x) for x in data_list]
 
-    def _apply_stage(self, data: Any, stage: str) -> Any:
-        func = self._registry.get(stage)
-        if not func:
-            return data
-        try:
-            return func(data)
-        except Exception as e:
-            logger.error(f'pipeline stage {stage} failed: {e}')
-            return self.fallback
-
-def clean_io(func: Callable) -> Callable:
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        cleaned_args = [str(a).strip() for a in args]
-        return func(*cleaned_args, **kwargs)
-    return wrapper
+if __name__ == '__main__':
+    handler = CoreHandler()
+    results = handler.batch_process([1, 2, 3, 1, 2])
+    print(f"Processed results: {results}")
