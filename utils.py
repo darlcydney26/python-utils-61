@@ -1,43 +1,39 @@
-import functools
-import logging
 import time
-from typing import Callable, Any
+import functools
+import random
 
-logger = logging.getLogger('python-utils-61')
-
-class Registry:
-    _storage = {}
-
-    @classmethod
-    def register(cls, name: str):
-        def decorator(func: Callable):
-            cls._storage[name] = func
-            return func
-        return decorator
-
-    @classmethod
-    def get(cls, name: str) -> Any:
-        return cls._storage.get(name)
-
-def retry_on_failure(attempts: int = 3, delay: float = 1.0):
-    def decorator(func: Callable):
+def retry_operation(retries=3, backoff=1, exceptions=(ConnectionError, TimeoutError)):
+    """Decorator implementing exponential backoff with jitter."""
+    def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            last_ex = None
-            for i in range(attempts):
+            attempts = 0
+            while attempts < retries:
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay * (2 ** i))
-            logger.error(f'failed after {attempts} attempts')
-            raise last_ex
+                except exceptions as e:
+                    attempts += 1
+                    if attempts == retries:
+                        raise e
+                    sleep_time = (backoff * (2 ** (attempts - 1))) + (random.random() * 0.1)
+                    time.sleep(sleep_time)
         return wrapper
     return decorator
 
-def clean_dict(data: dict) -> dict:
-    return {k: v for k, v in data.items() if v is not None}
+def execute_with_fallback(task, fallback, *args, **kwargs):
+    """Functional approach for network task execution."""
+    try:
+        return task(*args, **kwargs)
+    except Exception:
+        return fallback(*args, **kwargs)
 
-@Registry.register('noop')
-def noop(*args, **kwargs):
-    return None
+class NetworkHandler:
+    def __init__(self, timeout=5):
+        self.timeout = timeout
+
+    @retry_operation(retries=5)
+    def request_data(self, url):
+        # Logic simulating network instability
+        if random.random() < 0.7:
+            raise ConnectionError("Unstable network link")
+        return {"status": 200, "url": url}
