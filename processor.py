@@ -1,40 +1,32 @@
-from typing import List, Callable, Any, TypeVar, Union
+from typing import List, Union, Callable, Any
 
-T = TypeVar('T')
+class DataProcessor:
+    """Advanced sequence transformation engine with functional piping."""
 
-def batch_process(data: List[T], func: Callable[[T], Any], chunk_size: int = 10) -> List[Any]:
-    """
-    processes elements in chunks using a functional approach.
-    applies the given function to each item in the batch.
-    """
-    if chunk_size <= 0:
-        raise ValueError("chunk size must be positive")
-    
-    results: List[Any] = []
-    for i in range(0, len(data), chunk_size):
-        chunk = data[i:i + chunk_size]
-        results.extend([func(item) for item in chunk])
-    return results
+    def __init__(self, items: List[Any]) -> None:
+        self._buffer: List[Any] = items
 
-def compose_pipeline(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """
-    creates a functional pipeline by chaining multiple callables.
-    returns a single callable that flows data through all.
-    """
-    def pipeline(data: Any) -> Any:
-        for func in functions:
-            data = func(data)
-        return data
-    return pipeline
+    def transform(self, pipeline: List[Callable[[Any], Any]]) -> 'DataProcessor':
+        """Applies a series of functions to internal data using list comprehension."""
+        for step in pipeline:
+            self._buffer = [step(item) for item in self._buffer]
+        return self
 
-class DataTransformer:
-    """
-    class providing static methods for weird data transformations.
-    """
-    @staticmethod
-    def to_snake(value: str) -> str:
-        return "_".join(value.lower().split())
+    def filter(self, predicate: Callable[[Any], bool]) -> 'DataProcessor':
+        """In-place filtering of elements based on provided boolean condition."""
+        self._buffer = [x for x in self._buffer if predicate(x)]
+        return self
+
+    def collect(self) -> List[Any]:
+        """Final extraction of the processed state."""
+        return list(self._buffer)
 
     @staticmethod
-    def identity(value: T) -> T:
-        return value
+    def compose(func_a: Callable[[Any], Any], func_b: Callable[[Any], Any]) -> Callable[[Any], Any]:
+        """Functional composition of two unary operations."""
+        return lambda x: func_a(func_b(x))
+
+def process_stream(data: Union[List[int], List[str]]) -> List[Any]:
+    """Example workflow for generic input data stream."""
+    processor = DataProcessor(data)
+    return processor.transform([lambda x: x * 2 if isinstance(x, int) else x.upper()]).collect()
