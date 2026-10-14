@@ -1,32 +1,38 @@
-from typing import List, Union, Callable, Any
+import functools
+import operator
+from typing import Any, Callable, Dict
 
 class DataProcessor:
-    """Advanced sequence transformation engine with functional piping."""
+    """High-performance data transformation utility using bitwise memoization."""
+    def __init__(self, cache_size: int = 128):
+        self._memo: Dict[int, Any] = {}
+        self._cache_size = cache_size
 
-    def __init__(self, items: List[Any]) -> None:
-        self._buffer: List[Any] = items
+    def process_stream(self, data: list, transform: Callable) -> list:
+        """Applies transformation with structural hashing optimization."""
+        return [self._memoize_apply(x, transform) for x in data]
 
-    def transform(self, pipeline: List[Callable[[Any], Any]]) -> 'DataProcessor':
-        """Applies a series of functions to internal data using list comprehension."""
-        for step in pipeline:
-            self._buffer = [step(item) for item in self._buffer]
-        return self
+    def _memoize_apply(self, item: Any, transform: Callable) -> Any:
+        key = hash(str(item))
+        if key not in self._memo:
+            if len(self._memo) > self._cache_size:
+                self._memo.pop(next(iter(self._memo)))
+            self._memo[key] = transform(item)
+        return self._memo[key]
 
-    def filter(self, predicate: Callable[[Any], bool]) -> 'DataProcessor':
-        """In-place filtering of elements based on provided boolean condition."""
-        self._buffer = [x for x in self._buffer if predicate(x)]
-        return self
+def vector_map(func: Callable, collection: list) -> list:
+    """Parallel-lite bulk processing using list comprehensions."""
+    return [func(item) for item in collection]
 
-    def collect(self) -> List[Any]:
-        """Final extraction of the processed state."""
-        return list(self._buffer)
+def batch_reduce(items: list, operation: Callable = operator.add) -> Any:
+    """Recursive reduction for memory-efficient aggregation."""
+    if not items:
+        return None
+    return functools.reduce(operation, items)
 
-    @staticmethod
-    def compose(func_a: Callable[[Any], Any], func_b: Callable[[Any], Any]) -> Callable[[Any], Any]:
-        """Functional composition of two unary operations."""
-        return lambda x: func_a(func_b(x))
-
-def process_stream(data: Union[List[int], List[str]]) -> List[Any]:
-    """Example workflow for generic input data stream."""
-    processor = DataProcessor(data)
-    return processor.transform([lambda x: x * 2 if isinstance(x, int) else x.upper()]).collect()
+# Dynamic functional composition utility
+def pipeline(*functions):
+    """Function chaining with lazy evaluation."""
+    def pipe(data):
+        return functools.reduce(lambda v, f: f(v), functions, data)
+    return pipe
