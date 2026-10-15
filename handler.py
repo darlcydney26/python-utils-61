@@ -1,35 +1,42 @@
+import collections
 import functools
-import logging
-import time
-from typing import Callable, Any
+import itertools
 
-logger = logging.getLogger(__name__)
+def deep_flatten(items):
+    """Flatten nested iterables with recursive yield."""
+    for x in items:
+        if isinstance(x, (list, tuple, set)):
+            yield from deep_flatten(x)
+        else:
+            yield x
 
-class ResilienceError(Exception):
-    """Custom wrapper for untamable edge cases."""
-    pass
+def batch_process(iterable, size):
+    """Chunking strategy for memory-efficient iteration."""
+    it = iter(iterable)
+    return iter(lambda: tuple(itertools.islice(it, size)), ())
 
-def edge_case_shield(retries: int = 3, delay: float = 0.5):
-    def decorator(func: Callable):
+def memoize_with_expiry(ttl=60):
+    """Caching decorator with basic temporal expiration."""
+    def decorator(func):
+        cache = {}
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for attempt in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except (ValueError, TypeError, AttributeError) as e:
-                    logger.warning(f"Edge case hit in {func.__name__}: {e}. Retrying...")
-                    last_ex = e
-                    time.sleep(delay * (attempt + 1))
-                except Exception as e:
-                    logger.error(f"Unrecoverable catastrophe in {func.__name__}: {e}")
-                    raise ResilienceError(f"Shield failed: {e}") from e
-            raise last_ex or ResilienceError("Unknown failure")
+        def wrapper(*args):
+            import time
+            now = time.time()
+            if args in cache:
+                result, timestamp = cache[args]
+                if now - timestamp < ttl:
+                    return result
+            result = func(*args)
+            cache[args] = (result, now)
+            return result
         return wrapper
     return decorator
 
-@edge_case_shield(retries=2)
-def process_niche_data(data: Any) -> str:
-    if not isinstance(data, (dict, list)):
-        raise ValueError("Data format eccentricity detected")
-    return f"Processed: {len(data)} items"
+def pluck(data, key, default=None):
+    """Dot-notation path extraction for dict hierarchies."""
+    return functools.reduce(
+        lambda d, k: d.get(k, {}) if isinstance(d, dict) else default,
+        key.split('.'),
+        data
+    ) or default
