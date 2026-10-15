@@ -1,49 +1,42 @@
-import time
 import functools
-from typing import Callable, Any, Dict
+import time
 
-def time_execution(func: Callable) -> Callable:
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        start = time.perf_counter()
-        result = func(*args, **kwargs)
-        print(f"execution time: {time.perf_counter() - start:.6f}s")
-        return result
-    return wrapper
+class memoize_with_ttl:
+    def __init__(self, ttl_seconds=60):
+        self.ttl = ttl_seconds
+        self.cache = {}
 
-def dict_deep_merge(base: Dict, update: Dict) -> Dict:
-    for k, v in update.items():
-        if isinstance(v, dict) and k in base and isinstance(base[k], dict):
-            dict_deep_merge(base[k], v)
-        else:
-            base[k] = v
-    return base
-
-def retry_operation(attempts: int = 3, delay: float = 0.5):
-    def decorator(func: Callable):
+    def __call__(self, func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            last_ex = None
-            for i in range(attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay * (2 ** i))
-            raise last_ex
+            key = (args, frozenset(kwargs.items()))
+            now = time.monotonic()
+            if key in self.cache:
+                result, timestamp = self.cache[key]
+                if now - timestamp < self.ttl:
+                    return result
+            result = func(*args, **kwargs)
+            self.cache[key] = (result, now)
+            return result
         return wrapper
-    return decorator
 
-def memoize_with_expiry(ttl: int = 300):
-    cache = {}
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args):
-            now = time.time()
-            if args in cache and (now - cache[args]["time"] < ttl):
-                return cache[args]["data"]
-            res = func(*args)
-            cache[args] = {"data": res, "time": now}
-            return res
-        return wrapper
-    return decorator
+def batch_process(iterable, size):
+    """Generator for chunking heavy computation tasks."""
+    batch = []
+    for item in iterable:
+        batch.append(item)
+        if len(batch) >= size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+def fast_map(func, iterable, workers=4):
+    """Unusual spin-up of simple map with local context."""
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(func, iterable))
+
+def optimized_join(items, separator=', '):
+    """High-performance string concatenation via buffer."""
+    return separator.join(map(str, items))
