@@ -1,42 +1,49 @@
 import functools
+import itertools
 import time
+from typing import Callable, Any, Iterable, List
 
-class memoize_with_ttl:
-    def __init__(self, ttl_seconds=60):
-        self.ttl = ttl_seconds
-        self.cache = {}
+def compose(*functions: Callable) -> Callable:
+    """Functional pipeline builder for nested calls."""
+    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
 
-    def __call__(self, func):
+def chunks(data: Iterable, size: int) -> Iterable:
+    """Generator for splitting iterables into slices."""
+    it = iter(data)
+    for item in iter(lambda: tuple(itertools.islice(it, size)), ()): 
+        yield item
+
+def throttle(seconds: int = 1) -> Callable:
+    """Decorator for execution frequency limitation."""
+    def decorator(func: Callable) -> Callable:
+        last_called = [0.0]
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
-            now = time.monotonic()
-            if key in self.cache:
-                result, timestamp = self.cache[key]
-                if now - timestamp < self.ttl:
-                    return result
+            elapsed = time.time() - last_called[0]
+            if elapsed < seconds:
+                time.sleep(seconds - elapsed)
             result = func(*args, **kwargs)
-            self.cache[key] = (result, now)
+            last_called[0] = time.time()
             return result
         return wrapper
+    return decorator
 
-def batch_process(iterable, size):
-    """Generator for chunking heavy computation tasks."""
-    batch = []
-    for item in iterable:
-        batch.append(item)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
+def deep_flatten(nested: Iterable) -> List[Any]:
+    """Recursive list flattening via generator yields."""
+    result = []
+    for item in nested:
+        if isinstance(item, (list, tuple)):
+            result.extend(deep_flatten(item))
+        else:
+            result.append(item)
+    return result
 
-def fast_map(func, iterable, workers=4):
-    """Unusual spin-up of simple map with local context."""
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        return list(executor.map(func, iterable))
-
-def optimized_join(items, separator=', '):
-    """High-performance string concatenation via buffer."""
-    return separator.join(map(str, items))
+def memoize_dynamic(func: Callable) -> Callable:
+    """Unusual memoization using a function attribute cache."""
+    func.cache = {}
+    @functools.wraps(func)
+    def wrapper(*args):
+        if args not in func.cache:
+            func.cache[args] = func(*args)
+        return func.cache[args]
+    return wrapper
