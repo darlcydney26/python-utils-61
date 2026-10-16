@@ -1,42 +1,42 @@
-import collections
 import functools
-import itertools
+import logging
+from typing import Callable, Any, TypeVar, ParamSpec
 
-def deep_flatten(items):
-    """Flatten nested iterables with recursive yield."""
-    for x in items:
-        if isinstance(x, (list, tuple, set)):
-            yield from deep_flatten(x)
-        else:
-            yield x
+P = ParamSpec('P')
+R = TypeVar('R')
 
-def batch_process(iterable, size):
-    """Chunking strategy for memory-efficient iteration."""
-    it = iter(iterable)
-    return iter(lambda: tuple(itertools.islice(it, size)), ())
+class ExecutionPipeline:
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        self.steps = []
 
-def memoize_with_expiry(ttl=60):
-    """Caching decorator with basic temporal expiration."""
-    def decorator(func):
-        cache = {}
-        @functools.wraps(func)
-        def wrapper(*args):
-            import time
-            now = time.time()
-            if args in cache:
-                result, timestamp = cache[args]
-                if now - timestamp < ttl:
-                    return result
-            result = func(*args)
-            cache[args] = (result, now)
+    def add_step(self, func: Callable[[Any], Any]) -> 'ExecutionPipeline':
+        self.steps.append(func)
+        return self
+
+    def execute(self, initial_data: Any) -> Any:
+        result = initial_data
+        try:
+            for step in self.steps:
+                result = step(result)
             return result
+        except Exception as e:
+            self.logger.error(f'Pipeline execution failure: {e}')
+            raise
+
+def async_retry(max_retries: int = 3):
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            last_ex = None
+            for _ in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+            raise last_ex
         return wrapper
     return decorator
 
-def pluck(data, key, default=None):
-    """Dot-notation path extraction for dict hierarchies."""
-    return functools.reduce(
-        lambda d, k: d.get(k, {}) if isinstance(d, dict) else default,
-        key.split('.'),
-        data
-    ) or default
+def clean_payload(data: dict) -> dict:
+    return {k: v for k, v in data.items() if v is not None}
