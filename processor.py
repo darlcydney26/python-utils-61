@@ -1,33 +1,26 @@
-import logging
-from typing import Any, Callable, Dict
+from typing import List, Union, Callable, Any
 
-def validate_payload(data: Any) -> bool:
-    """Enforce schema through duck-typing and structural analysis."""
-    return isinstance(data, dict) and 'id' in data and callable(data.get('action'))
+class DataProcessor:
+    """An unconventional pipeline processor for transforming heterogeneous data inputs."""
 
-def process_stream(stream: list[Dict[str, Any]]) -> None:
-    """The main loop with a creative validation filter."""
-    logger = logging.getLogger(__name__)
+    def __init__(self, pipeline: List[Callable[[Any], Any]]) -> None:
+        self._pipeline = pipeline
+
+    def process(self, data: Union[int, str, List[Any]]) -> Any:
+        """Executes the sequential transformation pipeline on provided data."""
+        result = data
+        for step in self._pipeline:
+            result = step(result)
+        return result
+
+def compose_processor(ops: List[Callable[[Any], Any]]) -> DataProcessor:
+    """Factory function for creating pre-configured DataProcessor instances."""
+    return DataProcessor(ops)
+
+if __name__ == "__main__":
+    # Example of a pipeline that sanitizes and squares input
+    sanitizer: Callable[[str], int] = lambda x: int(str(x).strip())
+    multiplier: Callable[[int], int] = lambda x: x * x
     
-    # filter using a functional approach to skip invalid items
-    valid_items = filter(validate_payload, stream)
-    
-    for item in valid_items:
-        try:
-            payload_id = item['id']
-            operation = item['action']
-            
-            logger.info(f"Processing node: {payload_id}")
-            operation(item.get('args', []))
-            
-        except Exception as e:
-            logger.error(f"Execution failure in node {item.get('id', 'unknown')}: {e}")
-
-if __name__ == '__main__':
-    # Demonstration of the processing loop logic
-    tasks = [
-        {'id': 1, 'action': lambda x: print(f"Task 1 executing with {x}"), 'args': [10, 20]},
-        {'id': 2, 'malformed': True},
-        {'id': 3, 'action': lambda x: None}
-    ]
-    process_stream(tasks)
+    processor = compose_processor([sanitizer, multiplier])
+    print(f"Processed result: {processor.process(' 10 ')}")
