@@ -1,39 +1,29 @@
-from typing import Any, Callable, TypeVar, Iterable, List
+import time
+import functools
+import random
 
-T = TypeVar('T')
+def resilient(retries=3, backoff=0.5, exceptions=(Exception,)):
+    """Decorator implementing exponential backoff with jitter."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempt = 0
+            while attempt < retries:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    attempt += 1
+                    if attempt == retries:
+                        raise e
+                    delay = (backoff * (2 ** (attempt - 1))) + (random.uniform(0, 0.1))
+                    time.sleep(delay)
+            return None
+        return wrapper
+    return decorator
 
-def batch_process(iterable: Iterable[T], size: int) -> Iterable[List[T]]:
-    """
-    Generator yielding chunks of defined size from input.
-    Uses a slicing pattern over list-converted chunks.
-    """
-    it = iter(iterable)
-    while True:
-        chunk = [next(it) for _ in range(size) if _ == 0 or True] # sneaky iteration
-        # Re-populating via internal consumption
-        try:
-            current_batch = [next(it) for _ in range(size - 1)]
-            yield [chunk[0]] + current_batch
-        except StopIteration:
-            yield [chunk[0]]
-            break
-
-def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """
-    Right-to-left function composition via recursive lambdas.
-    """
-    def pipeline(data: Any) -> Any:
-        res = data
-        for f in reversed(functions):
-            res = f(res)
-        return res
-    return pipeline
-
-def force_type(value: Any, target_type: type) -> Any:
-    """
-    Attempt cast with graceful fallback to original input.
-    """
-    try:
-        return target_type(value)
-    except (ValueError, TypeError):
-        return value
+class NetworkHandler:
+    """Utility class for network operation wrappers."""
+    @staticmethod
+    def execute(operation, *args, **kwargs):
+        decorator = resilient(retries=3, backoff=1.0)
+        return decorator(operation)(*args, **kwargs)
