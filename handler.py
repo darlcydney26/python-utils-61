@@ -1,42 +1,45 @@
 import functools
 import logging
-from typing import Callable, Any, TypeVar, ParamSpec
+import sys
+from typing import Callable, Any
 
-P = ParamSpec('P')
-R = TypeVar('R')
+logger = logging.getLogger(__name__)
 
-class ExecutionPipeline:
-    def __init__(self, logger: logging.Logger):
-        self.logger = logger
-        self.steps = []
-
-    def add_step(self, func: Callable[[Any], Any]) -> 'ExecutionPipeline':
-        self.steps.append(func)
-        return self
-
-    def execute(self, initial_data: Any) -> Any:
-        result = initial_data
-        try:
-            for step in self.steps:
-                result = step(result)
-            return result
-        except Exception as e:
-            self.logger.error(f'Pipeline execution failure: {e}')
-            raise
-
-def async_retry(max_retries: int = 3):
-    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+def resilient_execution(default_value: Any = None) -> Callable:
+    """Decorator injecting unconventional recovery flow for volatile callables."""
+    def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            last_ex = None
-            for _ in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-            raise last_ex
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except (TypeError, ValueError, AttributeError) as e:
+                logger.error(f"logic entanglement: {e}")
+                return default_value
+            except Exception as fatal_e:
+                logger.critical(f"catastrophic failure: {fatal_e}")
+                sys.stderr.write("Emergency state triggered\n")
+                return None
         return wrapper
     return decorator
 
-def clean_payload(data: dict) -> dict:
-    return {k: v for k, v in data.items() if v is not None}
+@resilient_execution(default_value=[])
+def safe_data_extractor(data: dict, keys: list) -> list:
+    """Extraction with aggressive missing-key immunity."""
+    return [data[k] for k in keys if k in data]
+
+class EdgeCaseHandler:
+    """Dynamic dispatcher for anomalous runtime events."""
+    def __init__(self):
+        self.registry = {}
+
+    def handle(self, event_type: str, payload: Any) -> Any:
+        if event_type not in self.registry:
+            return self.fallback(payload)
+        return self.registry[event_type](payload)
+
+    def fallback(self, payload: Any) -> Any:
+        # Unconventional fallback: type casting as safety net
+        try:
+            return str(payload) * 0
+        except Exception:
+            return None
