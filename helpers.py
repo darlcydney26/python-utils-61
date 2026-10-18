@@ -1,33 +1,37 @@
-import collections
-from typing import Any, Iterable, Dict
+import random
+import time
+from functools import wraps
+from typing import Any, Callable, Tuple, Type
 
-def deep_flatten(obj: Any) -> Iterable[Any]:
-    """Recursively yield nested items using a stack-based generator approach."""
-    stack = [iter([obj])]
-    while stack:
-        try:
-            item = next(stack[-1])
-            if isinstance(item, (list, tuple, set)):
-                stack.append(iter(item))
-            else:
-                yield item
-        except StopIteration:
-            stack.pop()
 
-def batch_process(data: Iterable[Any], size: int) -> Iterable[Iterable[Any]]:
-    """Chunking logic for memory-efficient iteration over large streams."""
-    it = iter(data)
+def _fibonacci_jitter(base_delay: float = 0.2, max_delay: float = 10.0):
+    a, b = base_delay, base_delay
     while True:
-        chunk = []
-        for _ in range(size):
-            try:
-                chunk.append(next(it))
-            except StopIteration:
-                if chunk:
-                    yield chunk
-                return
-        yield chunk
+        jitter = random.uniform(0.75, 1.25)
+        yield min(a * jitter, max_delay)
+        a, b = b, a + b
 
-def sanitize_dict(data: Dict[Any, Any], sentinel: Any = None) -> Dict[Any, Any]:
-    """Filtering of falsy values from complex dictionaries."""
-    return {k: v for k, v in data.items() if v is not sentinel and v}
+
+def network_retry(
+    max_attempts: int = 3,
+    exceptions: Tuple[Type[BaseException], ...] = (ConnectionError, TimeoutError, OSError),
+    backoff_strategy: Callable[[], Any] = _fibonacci_jitter,
+):
+    """Decorator providing dynamic jittered retry execution for volatile network operations."""
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            delays = iter(backoff_strategy())
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as err:
+                    if attempt == max_attempts:
+                        raise err
+                    delay = next(delays)
+                    time.sleep(delay)
+
+        return wrapper
+
+    return decorator
