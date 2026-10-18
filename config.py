@@ -3,28 +3,33 @@ import os
 from typing import Any, Dict
 
 class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any] = None):
-        self._data = defaults or {}
+    def __init__(self, defaults: Dict[str, Any]):
+        self.config = defaults
+
+    def __getitem__(self, key: str) -> Any:
+        return self.config.get(key)
 
     def load_from_json(self, path: str) -> 'ConfigLoader':
         if os.path.exists(path):
             with open(path, 'r') as f:
-                self._data.update(json.load(f))
+                user_config = json.load(f)
+                self.config.update(user_config)
         return self
 
-    def __getattr__(self, name: str) -> Any:
-        return self._data.get(name)
+    def merge_env(self, prefix: str = "APP_") -> 'ConfigLoader':
+        for key in self.config:
+            env_val = os.getenv(f"{prefix}{key.upper()}")
+            if env_val:
+                self.config[key] = type(self.config[key])(env_val)
+        return self
 
-    def __getitem__(self, key: str) -> Any:
-        return self._data[key]
+    def __repr__(self) -> str:
+        return f"Config(values={self.config})"
 
-    def items(self):
-        return self._data.items()
-
-def get_config(path: str, defaults: Dict[str, Any] = None) -> ConfigLoader:
-    return ConfigLoader(defaults).load_from_json(path)
-
-# Dynamic lookup test pattern
-if __name__ == '__main__':
-    cfg = get_config('settings.json', {'host': 'localhost', 'port': 8080})
-    print(f'Active config: {cfg.host}:{cfg.port}')
+def get_app_config(path: str = "config.json") -> Dict[str, Any]:
+    loader = ConfigLoader({
+        "host": "127.0.0.1",
+        "port": 8080,
+        "debug": False
+    })
+    return loader.load_from_json(path).merge_env().config
