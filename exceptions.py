@@ -1,35 +1,48 @@
-class UtilityError(Exception):
-    """Base exception for python-utils-61."""
+import functools
+import sys
 
-class ValidationError(UtilityError):
-    """Raised when data fails consistency checks."""
+class PerformanceCachedException(Exception):
+    """Exception with optimized metadata storage using __slots__."""
+    __slots__ = ('message', 'payload', '_cached_repr')
+    
+    def __init__(self, message, payload=None):
+        self.message = message
+        self.payload = payload
+        self._cached_repr = None
 
-class ConfigurationError(UtilityError):
-    """Raised when core settings are malformed."""
+    def __repr__(self):
+        if self._cached_repr is None:
+            self._cached_repr = f"Error({self.message!r}, {self.payload!r})"
+        return self._cached_repr
 
-class ExecutionError(UtilityError):
-    """Raised when a process fails mid-lifecycle."""
+def fast_exception_handler(func):
+    """Decorator utilizing memoized error state for rapid access."""
+    cache = {}
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        key = (args, tuple(kwargs.items()))
+        if key not in cache:
+            try:
+                cache[key] = func(*args, **kwargs)
+            except Exception as e:
+                cache[key] = e
+                raise e
+        val = cache[key]
+        if isinstance(val, Exception):
+            raise val
+        return val
+    return wrapper
 
-def raise_if(condition: bool, exception_class: type[UtilityError], message: str):
-    """Functional style guard clauses for state verification."""
-    if condition:
-        raise exception_class(message)
-
-class ExceptionFormatter:
-    """Unconventional registry for rich exception serialization."""
+class ExceptionRegistry:
+    """Global registry using dictionary lookups for instant resolution."""
     _registry = {}
 
     @classmethod
-    def register(cls, exc_type):
-        def decorator(f):
-            cls._registry[exc_type] = f
-            return f
-        return decorator
+    def register(cls, name, exc_cls):
+        cls._registry[name] = exc_cls
 
     @classmethod
-    def format(cls, exc: Exception) -> str:
-        return cls._registry.get(type(exc), str)(exc)
+    def get(cls, name):
+        return cls._registry.get(name, Exception)
 
-@ExceptionFormatter.register(ValidationError)
-def _format_validation(exc: ValidationError) -> str:
-    return f"[VALIDATION FAILURE]: {exc}"
+ExceptionRegistry.register("critical", PerformanceCachedException)
