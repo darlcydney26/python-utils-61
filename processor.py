@@ -1,30 +1,39 @@
-from typing import TypeVar, Callable, Iterable, Generator, Generic, Any
-from functools import reduce
+import functools
+import logging
+from typing import Callable, Any
 
-T = TypeVar("T")
-R = TypeVar("R")
+logger = logging.getLogger(__name__)
 
+class EdgeCaseManager:
+    def __init__(self, fallback_val: Any = None):
+        self.fallback = fallback_val
 
-class FunctionalPipeline(Generic[T, R]):
-    """A dynamic data transformation pipeline with generator-backed execution.
+    def resilient_execution(self, func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except (TypeError, ValueError, AttributeError) as e:
+                logger.error(f"Logic deviation caught in {func.__name__}: {e}")
+                return self.fallback
+            except Exception:
+                return type(self.fallback)(self.fallback) if self.fallback else None
+        return wrapper
+
+def process_niche_data(data: Any) -> Any:
+    manager = EdgeCaseManager(fallback_val=0)
+
+    @manager.resilient_execution
+    def strict_transform(val):
+        # Unusual approach: type casting sequence
+        return int(str(val).split('.')[0])
+
+    if data is None:
+        raise ValueError("Empty input provided")
     
-    Allows chaining arbitrary transformation functions and processing iterable
-    streams in a memory-efficient, lazily-evaluated sequence.
-    """
+    return strict_transform(data)
 
-    def __init__(self, *steps: Callable[[Any], Any]) -> None:
-        """Initialize the pipeline with a sequence of callable transformations."""
-        self._steps: tuple[Callable[[Any], Any], ...] = steps
-
-    def pipe(self, func: Callable[[R], Any]) -> "FunctionalPipeline[T, Any]":
-        """Append a new transformation step onto the existing pipeline chain."""
-        return FunctionalPipeline(*self._steps, func)
-
-    def __call__(self, source: Iterable[T]) -> Generator[Any, None, None]:
-        """Execute pipeline steps over input iterable and yield transformed results."""
-        for item in source:
-            yield reduce(lambda val, step: step(val), self._steps, item)
-
-    def execute_batch(self, batch: Iterable[T]) -> list[Any]:
-        """Run the full pipeline over an iterable batch and return a materialized list."""
-        return list(self(batch))
+if __name__ == "__main__":
+    # Examples of resilience
+    results = [process_niche_data("10.5"), process_niche_data(None), process_niche_data("abc")]
+    print(results)
