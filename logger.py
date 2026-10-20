@@ -1,36 +1,29 @@
 import logging
-import os
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
+import os
 
-def get_logger(name: str, log_file: str = 'app.log', max_bytes: int = 1048576, backup_count: int = 3):
+def setup_logger(name='app_logger', log_file='app.log', level=logging.INFO):
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(level)
     
-    log_path = Path(log_file)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    formatter = logging.Formatter(
-        fmt='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-
-    handler = RotatingFileHandler(
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    file_handler = RotatingFileHandler(
         log_file, 
-        maxBytes=max_bytes, 
-        backupCount=backup_count
+        maxBytes=1024 * 1024 * 5, 
+        backupCount=3
     )
-    handler.setFormatter(formatter)
-
+    file_handler.setFormatter(formatter)
+    
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
-
+    
     if not logger.handlers:
-        logger.addHandler(handler)
+        logger.addHandler(file_handler)
         logger.addHandler(console_handler)
-
+        
     return logger
 
 if __name__ == '__main__':
-    log = get_logger('dev_logger')
-    log.info('System initialization complete')
+    log = setup_logger()
+    log.info('logger initialization complete')
