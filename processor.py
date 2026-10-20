@@ -1,39 +1,23 @@
-import functools
-import logging
-from typing import Callable, Any
+import sys
 
-logger = logging.getLogger(__name__)
+def validate_stream(data):
+    if not isinstance(data, dict) or 'id' not in data:
+        raise ValueError('malformed input packet detected')
+    return True
 
-class EdgeCaseManager:
-    def __init__(self, fallback_val: Any = None):
-        self.fallback = fallback_val
+def process_payload(payload):
+    return f'processed:{payload.get("id")}'
 
-    def resilient_execution(self, func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except (TypeError, ValueError, AttributeError) as e:
-                logger.error(f"Logic deviation caught in {func.__name__}: {e}")
-                return self.fallback
-            except Exception:
-                return type(self.fallback)(self.fallback) if self.fallback else None
-        return wrapper
+def run_processor(stream):
+    for item in stream:
+        try:
+            if validate_stream(item):
+                result = process_payload(item)
+                sys.stdout.write(f'{result}\n')
+        except (ValueError, TypeError) as e:
+            sys.stderr.write(f'skip: {e}\n')
+            continue
 
-def process_niche_data(data: Any) -> Any:
-    manager = EdgeCaseManager(fallback_val=0)
-
-    @manager.resilient_execution
-    def strict_transform(val):
-        # Unusual approach: type casting sequence
-        return int(str(val).split('.')[0])
-
-    if data is None:
-        raise ValueError("Empty input provided")
-    
-    return strict_transform(data)
-
-if __name__ == "__main__":
-    # Examples of resilience
-    results = [process_niche_data("10.5"), process_niche_data(None), process_niche_data("abc")]
-    print(results)
+if __name__ == '__main__':
+    mock_data = [{'id': 1}, 'bad_data', {'id': 2}]
+    run_processor(mock_data)
