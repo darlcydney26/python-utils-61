@@ -1,13 +1,13 @@
 # python-utils-61
 
-A comprehensive collection of production-ready Python utility functions designed to streamline daily development tasks. This library bridges common gaps in the standard library by providing robust helpers for data processing, file I/O, and string manipulation.
+A comprehensive collection of performance-oriented Python utility functions designed to streamline daily development tasks. This library focuses on simplifying data manipulation, file system operations, and execution timing for efficient scripting.
 
 ## Features
 
-*   **Robust File Operations:** Simplifies directory synchronization and recursive file pattern matching with intuitive one-liners.
-*   **Data Validation Helpers:** Includes high-performance decorators to enforce schema constraints on dictionaries and JSON payloads.
-*   **Concurrency Utilities:** Provides thread-safe decorators and easy-to-implement rate limiting for asynchronous API interactions.
-*   **String Normalization:** Advanced tools for slugification, fuzzy matching, and multi-encoding text sanitization.
+*   **Robust File Operations**: Simplified wrappers for recursive directory traversal and asynchronous logging.
+*   **Performance Profiling**: Decorators for measuring function execution time and memory footprint with minimal overhead.
+*   **Data Sanitization**: Built-in utilities for cleaning deeply nested dictionaries and parsing inconsistent JSON formats.
+*   **Time Utilities**: Precision helpers for timezone-aware date formatting and high-resolution sleep intervals.
 
 ## Installation
 
@@ -17,36 +17,36 @@ Install the package via pip:
 pip install python-utils-61
 ```
 
-Or add it to your `requirements.txt`:
+Or clone the repository for development:
 
-```text
-python-utils-61>=1.0.0
+```bash
+git clone https://github.com/Developer/python-utils-61.git
+cd python-utils-61
+pip install -r requirements.txt
 ```
 
 ## Basic Usage
 
-Import the desired utilities directly to simplify your boilerplate code:
+Import the utility module to access the core functions. Here is an example of using the timer decorator:
 
 ```python
-from pyutils61.file_tools import secure_write
-from pyutils61.validation import validate_schema
+from utils.performance import timer
 
-# Securely write JSON data to a file
-data = {"status": "success", "id": 101}
-secure_write("config.json", data)
+@timer
+def process_data(data):
+    # Simulate a heavy operation
+    return [x * 2 for x in data]
 
-# Enforce a schema on incoming data
-schema = {"id": int, "status": str}
-if validate_schema(data, schema):
-    print("Data structure verified.")
+result = process_data(range(1000000))
+# Output: Function 'process_data' took 0.045 seconds
 ```
+
+## Contributing
+
+Contributions are welcome. Please open an issue to discuss proposed changes or submit a pull request for bug fixes. Ensure all new functions include unit tests located in the `/tests` directory.
 
 ## License
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Distributed under the MIT License. See `LICENSE` for more information.
-
----
-
-*Developed by Developer | Maintained with ❤️ for the Python community.*
