@@ -1,37 +1,48 @@
-import random
-import time
-from functools import wraps
-from typing import Any, Callable, Tuple, Type
+import functools
+import collections
 
-
-def _fibonacci_jitter(base_delay: float = 0.2, max_delay: float = 10.0):
-    a, b = base_delay, base_delay
-    while True:
-        jitter = random.uniform(0.75, 1.25)
-        yield min(a * jitter, max_delay)
-        a, b = b, a + b
-
-
-def network_retry(
-    max_attempts: int = 3,
-    exceptions: Tuple[Type[BaseException], ...] = (ConnectionError, TimeoutError, OSError),
-    backoff_strategy: Callable[[], Any] = _fibonacci_jitter,
-):
-    """Decorator providing dynamic jittered retry execution for volatile network operations."""
-
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            delays = iter(backoff_strategy())
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as err:
-                    if attempt == max_attempts:
-                        raise err
-                    delay = next(delays)
-                    time.sleep(delay)
-
+def memoize_with_ttl(ttl_seconds=300):
+    def decorator(func):
+        cache = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = __import__('time').time()
+            if key in cache:
+                val, timestamp = cache[key]
+                if now - timestamp < ttl_seconds:
+                    return val
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
         return wrapper
-
     return decorator
+
+class BatchProcessor:
+    def __init__(self, size=100):
+        self.size = size
+        self.buffer = collections.deque()
+
+    def process(self, items, callback):
+        for item in items:
+            self.buffer.append(item)
+            if len(self.buffer) >= self.size:
+                callback(list(self.buffer))
+                self.buffer.clear()
+        if self.buffer:
+            callback(list(self.buffer))
+            self.buffer.clear()
+
+def fast_flatten(nested_list):
+    result = []
+    stack = [iter(nested_list)]
+    while stack:
+        try:
+            item = next(stack[-1])
+            if isinstance(item, (list, tuple)):
+                stack.append(iter(item))
+            else:
+                result.append(item)
+        except StopIteration:
+            stack.pop()
+    return result
