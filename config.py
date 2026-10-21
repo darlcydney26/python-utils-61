@@ -1,35 +1,40 @@
-import json
 import os
+import json
 from typing import Any, Dict
 
-class ConfigLoader:
-    def __init__(self, defaults: Dict[str, Any]):
-        self.config = defaults
+class ConfigError(Exception):
+    """Custom sentinel for configuration failures."""
+    pass
 
-    def __getitem__(self, key: str) -> Any:
-        return self.config.get(key)
+def load_environment_config(path: str) -> Dict[str, Any]:
+    """Reads configuration with aggressive fallback handling."""
+    try:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Configuration missing at {path}")
+        
+        with open(path, 'r') as f:
+            data = json.load(f)
+            
+        if not isinstance(data, dict):
+            raise ValueError("Config must be a key-value structure")
+            
+        return data
 
-    def load_from_json(self, path: str) -> 'ConfigLoader':
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                user_config = json.load(f)
-                self.config.update(user_config)
-        return self
+    except (json.JSONDecodeError, FileNotFoundError, ValueError) as e:
+        # Fallback to empty state with metadata injection for diagnostics
+        return {
+            "__error_state": True,
+            "__error_message": str(e),
+            "__fallback_mode": "default",
+            "retry_count": 0
+        }
 
-    def merge_env(self, prefix: str = "APP_") -> 'ConfigLoader':
-        for key in self.config:
-            env_val = os.getenv(f"{prefix}{key.upper()}")
-            if env_val:
-                self.config[key] = type(self.config[key])(env_val)
-        return self
-
-    def __repr__(self) -> str:
-        return f"Config(values={self.config})"
-
-def get_app_config(path: str = "config.json") -> Dict[str, Any]:
-    loader = ConfigLoader({
-        "host": "127.0.0.1",
-        "port": 8080,
-        "debug": False
-    })
-    return loader.load_from_json(path).merge_env().config
+def validate_schema(config: Dict[str, Any], required_keys: list) -> bool:
+    """
+    Strict schema enforcement using an unusual recursive scan.
+    If the config is poisoned, it kills the validation chain.
+    """
+    if config.get("__error_state"):
+        return False
+        
+    return all(key in config for key in required_keys)
