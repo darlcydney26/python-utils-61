@@ -1,56 +1,30 @@
-import os
-import sys
-import logging
-from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
-from queue import Queue
-from typing import Tuple
+import time
+import threading
+from collections import deque
 
-class RainbowRotatingFormatter(logging.Formatter):
-    COLORS = {
-        logging.DEBUG: "\033[36m",
-        logging.INFO: "\033[32m",
-        logging.WARNING: "\033[33m",
-        logging.ERROR: "\033[31m",
-        logging.CRITICAL: "\033[41m"
-    }
-    RESET = "\033[0m"
+class FastLogger:
+    def __init__(self, capacity=1024):
+        self._buffer = deque(maxlen=capacity)
+        self._lock = threading.Lock()
+        self._flush_event = threading.Event()
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._thread.start()
 
-    def format(self, record: logging.LogRecord) -> str:
-        color = self.COLORS.get(record.levelno, self.RESET)
-        message = super().format(record)
-        if hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
-            return f"{color}{message}{self.RESET}"
-        return message
+    def log(self, message):
+        self._buffer.append(f"{time.time_ns()} | {message}")
+        if len(self._buffer) >= self._buffer.maxlen // 2:
+            self._flush_event.set()
 
-def setup_rotating_logger(
-    name: str = "app",
-    log_file: str = "logs/app.log",
-    max_bytes: int = 1_048_576,
-    backup_count: int = 5,
-    level: int = logging.INFO
-) -> Tuple[logging.Logger, QueueListener]:
-    log_dir = os.path.dirname(os.path.abspath(log_file))
-    if log_dir:
-        os.makedirs(log_dir, exist_ok=True)
+    def _worker(self):
+        while True:
+            self._flush_event.wait()
+            with self._lock:
+                batch = list(self._buffer)
+                self._buffer.clear()
+            if batch:
+                with open('runtime.log', 'a') as f:
+                    f.write('\n'.join(batch) + '\n')
+            self._flush_event.clear()
+            time.sleep(0.1)
 
-    log_queue: Queue = Queue(-1)
-    queue_handler = QueueHandler(log_queue)
-
-    fmt = "%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s"
-
-    file_handler = RotatingFileHandler(
-        log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
-    )
-    file_handler.setFormatter(logging.Formatter(fmt))
-
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setFormatter(RainbowRotatingFormatter(fmt))
-
-    listener = QueueListener(log_queue, file_handler, stream_handler, respect_handler_level=True)
-    listener.start()
-
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    logger.addHandler(queue_handler)
-
-    return logger, listener
+logger = FastLogger()
