@@ -1,29 +1,29 @@
 import time
 import functools
 import random
+from typing import Callable, Any, Type
 
-def resilient(retries=3, backoff=0.5, exceptions=(Exception,)):
-    """Decorator implementing exponential backoff with jitter."""
-    def decorator(func):
+def retry_network_op(exceptions: tuple[Type[Exception], ...] = (Exception,), 
+                     max_retries: int = 3, 
+                     backoff_base: float = 1.0):
+    def decorator(func: Callable):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempt = 0
-            while attempt < retries:
+        def wrapper(*args, **kwargs) -> Any:
+            last_ex = None
+            for attempt in range(max_retries):
                 try:
                     return func(*args, **kwargs)
                 except exceptions as e:
-                    attempt += 1
-                    if attempt == retries:
-                        raise e
-                    delay = (backoff * (2 ** (attempt - 1))) + (random.uniform(0, 0.1))
-                    time.sleep(delay)
-            return None
+                    last_ex = e
+                    wait = backoff_base * (2 ** attempt) + random.uniform(0, 0.1)
+                    time.sleep(wait)
+            raise last_ex
         return wrapper
     return decorator
 
-class NetworkHandler:
-    """Utility class for network operation wrappers."""
-    @staticmethod
-    def execute(operation, *args, **kwargs):
-        decorator = resilient(retries=3, backoff=1.0)
-        return decorator(operation)(*args, **kwargs)
+# Usage example for the brave
+@retry_network_op(exceptions=(ConnectionError,), max_retries=5)
+def fetch_data(url: str):
+    import urllib.request
+    with urllib.request.urlopen(url) as response:
+        return response.read()
