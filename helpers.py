@@ -1,48 +1,41 @@
 import functools
-import collections
+import itertools
+import time
+from typing import Any, Callable, Iterable, TypeVar
 
-def memoize_with_ttl(ttl_seconds=300):
-    def decorator(func):
-        cache = {}
+T = TypeVar('T')
+
+def compose(*functions: Callable) -> Callable:
+    """Functional pipe for data processing pipelines."""
+    return functools.reduce(lambda f, g: lambda x: g(f(x)), functions)
+
+def chunk_stream(data: Iterable[T], size: int) -> Iterable[list[T]]:
+    """Iterator for batch processing of large collections."""
+    it = iter(data)
+    return iter(lambda: list(itertools.islice(it, size)), [])
+
+def retry_with_backoff(retries: int = 3, backoff: float = 0.1):
+    """Decorator for transient failure recovery patterns."""
+    def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = (args, tuple(sorted(kwargs.items())))
-            now = __import__('time').time()
-            if key in cache:
-                val, timestamp = cache[key]
-                if now - timestamp < ttl_seconds:
-                    return val
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
+            last_ex = None
+            for i in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(backoff * (2 ** i))
+            raise last_ex
         return wrapper
     return decorator
 
-class BatchProcessor:
-    def __init__(self, size=100):
-        self.size = size
-        self.buffer = collections.deque()
-
-    def process(self, items, callback):
-        for item in items:
-            self.buffer.append(item)
-            if len(self.buffer) >= self.size:
-                callback(list(self.buffer))
-                self.buffer.clear()
-        if self.buffer:
-            callback(list(self.buffer))
-            self.buffer.clear()
-
-def fast_flatten(nested_list):
+def flatten(nested_list: list) -> list:
+    """Recursive reduction of multi-dimensional structure."""
     result = []
-    stack = [iter(nested_list)]
-    while stack:
-        try:
-            item = next(stack[-1])
-            if isinstance(item, (list, tuple)):
-                stack.append(iter(item))
-            else:
-                result.append(item)
-        except StopIteration:
-            stack.pop()
+    for item in nested_list:
+        if isinstance(item, list):
+            result.extend(flatten(item))
+        else:
+            result.append(item)
     return result
