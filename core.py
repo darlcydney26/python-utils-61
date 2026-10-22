@@ -1,45 +1,33 @@
+import time
 import functools
-from typing import Any, Callable, Dict, List, TypeVar
+import random
 
-T = TypeVar('T')
-U = TypeVar('U')
+def retry(exceptions, attempts=3, backoff=0.5):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for i in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_ex = e
+                    if i < attempts - 1:
+                        sleep_time = backoff * (2 ** i) + (random.random() * 0.1)
+                        time.sleep(sleep_time)
+            raise last_ex
+        return wrapper
+    return decorator
 
-class Pipe:
-    """Fluent data processing pipeline using bitwise right-shift operator."""
-    def __init__(self, value: Any) -> None:
-        self.value = value
+class NetworkHandler:
+    @staticmethod
+    @retry((ConnectionError, TimeoutError), attempts=3)
+    def fetch_data(url):
+        # Simulated unstable network operation
+        if random.random() < 0.7:
+            raise ConnectionError(f"Failed to reach {url}")
+        return {"status": 200, "data": "success"}
 
-    def __rshift__(self, func: Callable[[Any], Any]) -> 'Pipe':
-        if callable(func):
-            return Pipe(func(self.value))
-        return self
-
-    def unwrap(self) -> Any:
-        return self.value
-
-    def __repr__(self) -> str:
-        return f"Pipe({self.value!r})"
-
-def deep_get(data: Dict[str, Any], path: str, default: Any = None) -> Any:
-    """Retrieve nested value using dot-separated path."""
-    keys = path.split('.')
-    curr: Any = data
-    for k in keys:
-        if isinstance(curr, dict) and k in curr:
-            curr = curr[k]
-        else:
-            return default
-    return curr
-
-def chunkify(items: List[T], size: int) -> List[List[T]]:
-    """Split a sequence into fixed-size chunks."""
-    if size <= 0:
-        raise ValueError("Chunk size must be greater than zero")
-    return [items[i:i + size] for i in range(0, len(items), size)]
-
-def safe_cast(val: Any, target_type: type, default: Any = None) -> Any:
-    """Attempt type conversion with fallback default."""
-    try:
-        return target_type(val)
-    except (ValueError, TypeError):
-        return default
+# Example usage:
+# handler = NetworkHandler()
+# result = handler.fetch_data("https://api.example.com")
