@@ -1,29 +1,26 @@
 import time
 import functools
 import random
-from typing import Callable, Any, Type
 
-def retry_network_op(exceptions: tuple[Type[Exception], ...] = (Exception,), 
-                     max_retries: int = 3, 
-                     backoff_base: float = 1.0):
-    def decorator(func: Callable):
+def retry(attempts=3, backoff=1.0, exceptions=(Exception,)): 
+    def decorator(func):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
+        def wrapper(*args, **kwargs):
             last_ex = None
-            for attempt in range(max_retries):
+            for i in range(attempts):
                 try:
                     return func(*args, **kwargs)
                 except exceptions as e:
                     last_ex = e
-                    wait = backoff_base * (2 ** attempt) + random.uniform(0, 0.1)
-                    time.sleep(wait)
+                    delay = backoff * (2 ** i) + random.uniform(0, 0.1)
+                    time.sleep(delay)
             raise last_ex
         return wrapper
     return decorator
 
-# Usage example for the brave
-@retry_network_op(exceptions=(ConnectionError,), max_retries=5)
-def fetch_data(url: str):
-    import urllib.request
-    with urllib.request.urlopen(url) as response:
-        return response.read()
+@retry(attempts=3, backoff=0.5)
+def fetch_data(url):
+    # Simulate network instability
+    if random.random() < 0.7:
+        raise ConnectionError(f"Failed to reach {url}")
+    return {"status": 200, "data": "payload"}
