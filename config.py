@@ -1,40 +1,30 @@
-import os
 import json
+import os
 from typing import Any, Dict
 
-class ConfigError(Exception):
-    """Custom sentinel for configuration failures."""
-    pass
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any] = None):
+        self._data = defaults or {}
 
-def load_environment_config(path: str) -> Dict[str, Any]:
-    """Reads configuration with aggressive fallback handling."""
-    try:
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Configuration missing at {path}")
-        
-        with open(path, 'r') as f:
-            data = json.load(f)
-            
-        if not isinstance(data, dict):
-            raise ValueError("Config must be a key-value structure")
-            
-        return data
+    def load_from_json(self, file_path: str) -> None:
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                file_data = json.load(f)
+                self._data.update(file_data)
 
-    except (json.JSONDecodeError, FileNotFoundError, ValueError) as e:
-        # Fallback to empty state with metadata injection for diagnostics
-        return {
-            "__error_state": True,
-            "__error_message": str(e),
-            "__fallback_mode": "default",
-            "retry_count": 0
-        }
+    def __getattr__(self, name: str) -> Any:
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(f'Key {name} not found')
 
-def validate_schema(config: Dict[str, Any], required_keys: list) -> bool:
-    """
-    Strict schema enforcement using an unusual recursive scan.
-    If the config is poisoned, it kills the validation chain.
-    """
-    if config.get("__error_state"):
-        return False
-        
-    return all(key in config for key in required_keys)
+    def __getitem__(self, key: str) -> Any:
+        return self._data.get(key)
+
+def get_config(path: str, defaults: Dict[str, Any] = None) -> ConfigLoader:
+    loader = ConfigLoader(defaults)
+    loader.load_from_json(path)
+    return loader
+
+# Example usage:
+# cfg = get_config('settings.json', {'debug': False, 'port': 8080})
+# print(cfg.port)
