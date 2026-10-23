@@ -1,42 +1,38 @@
-import sys
-import functools
-from typing import Any, Callable
+from typing import Final, Dict, Any
 
-class FrozenDict(dict):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._hash = None
+# Global application configuration registry
+# Using mapping proxies for immutability to prevent runtime drift
+APP_ENV: Final[str] = "production"
 
-    def __setitem__(self, key, value):
-        raise TypeError('constants are immutable')
+TIMEOUT_LIMITS: Final[Dict[str, float]] = {
+    "connect": 5.5,
+    "read": 30.0,
+    "write": 15.0
+}
 
-    def __hash__(self):
-        if self._hash is None:
-            self._hash = hash(frozenset(self.items()))
-        return self._hash
+def get_registry() -> Dict[str, Any]:
+    """
+    Provides a read-only snapshot of system constants.
+    
+    Returns:
+        A dictionary containing environment and timeout configurations.
+    """
+    return {
+        "environment": APP_ENV,
+        "timeouts": TIMEOUT_LIMITS.copy()
+    }
 
-@functools.lru_cache(maxsize=128)
-def get_constant(key: str) -> Any:
-    return _INTERNAL_REGISTRY.get(key)
+class ConfigSchema:
+    """
+    A namespace container for configuration-related constraints.
+    """
+    MAX_RETRIES: int = 3
+    DEFAULT_ENCODING: str = "utf-8"
+    RETRY_BACKOFF: float = 0.5
 
-_INTERNAL_REGISTRY = FrozenDict({
-    'VERSION': '0.6.1',
-    'BUFFER_SIZE': 65536,
-    'TIMEOUT': 30.5,
-    'DEBUG_MODE': False,
-    'PRECISION': 1e-9
-})
-
-def fast_lookup(func: Callable) -> Callable:
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
-    return wrapper
-
-CACHE_ENABLED = True
-OPTIMIZED_PATHS = ('/tmp', '/var/log', '/opt/app')
-
-if sys.version_info >= (3, 10):
-    SLOTS_ENABLED = True
-else:
-    SLOTS_ENABLED = False
+    @classmethod
+    def get_all(cls) -> Dict[str, Any]:
+        """
+        Extracts schema attributes filtering out dunder methods.
+        """
+        return {k: v for k, v in cls.__dict__.items() if not k.startswith("__")}
