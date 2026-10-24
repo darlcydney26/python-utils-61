@@ -1,26 +1,33 @@
 import time
 import functools
-import random
+from typing import Callable, Any, Type
 
-def retry(attempts=3, backoff=1.0, exceptions=(Exception,)): 
-    def decorator(func):
+def retry_on_failure(exceptions: tuple[Type[Exception], ...], max_retries: int = 3, delay: float = 1.0):
+    def decorator(func: Callable):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             last_ex = None
-            for i in range(attempts):
+            for attempt in range(max_retries):
                 try:
                     return func(*args, **kwargs)
                 except exceptions as e:
                     last_ex = e
-                    delay = backoff * (2 ** i) + random.uniform(0, 0.1)
-                    time.sleep(delay)
+                    if attempt < max_retries - 1:
+                        time.sleep(delay * (2 ** attempt))
             raise last_ex
         return wrapper
     return decorator
 
-@retry(attempts=3, backoff=0.5)
-def fetch_data(url):
-    # Simulate network instability
-    if random.random() < 0.7:
-        raise ConnectionError(f"Failed to reach {url}")
-    return {"status": 200, "data": "payload"}
+def exponential_backoff(func: Callable):
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        retries = 0
+        while True:
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                if retries >= 5:
+                    raise
+                time.sleep(0.1 * (2 ** retries))
+                retries += 1
+    return wrapper
