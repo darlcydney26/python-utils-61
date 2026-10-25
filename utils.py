@@ -1,33 +1,41 @@
-import time
+import collections
 import functools
-from typing import Callable, Any, Type
+import itertools
 
-def retry_on_failure(exceptions: tuple[Type[Exception], ...], max_retries: int = 3, delay: float = 1.0):
-    def decorator(func: Callable):
+def batcher(iterable, size):
+    it = iter(iterable)
+    while True:
+        chunk = tuple(itertools.islice(it, size))
+        if not chunk: break
+        yield chunk
+
+def memoize_with_expiry(seconds):
+    def decorator(func):
+        cache = {}
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_ex = None
-            for attempt in range(max_retries):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_ex = e
-                    if attempt < max_retries - 1:
-                        time.sleep(delay * (2 ** attempt))
-            raise last_ex
+        def wrapper(*args):
+            now = __import__('time').time()
+            if args in cache:
+                result, timestamp = cache[args]
+                if now - timestamp < seconds:
+                    return result
+            result = func(*args)
+            cache[args] = (result, now)
+            return result
         return wrapper
     return decorator
 
-def exponential_backoff(func: Callable):
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        retries = 0
-        while True:
-            try:
-                return func(*args, **kwargs)
-            except Exception:
-                if retries >= 5:
-                    raise
-                time.sleep(0.1 * (2 ** retries))
-                retries += 1
-    return wrapper
+def deep_flatten(items):
+    for x in items:
+        if isinstance(x, collections.abc.Iterable) and not isinstance(x, (str, bytes)):
+            yield from deep_flatten(x)
+        else:
+            yield x
+
+def compose(*functions):
+    def compose2(f, g):
+        return lambda x: f(g(x))
+    return functools.reduce(compose2, functions, lambda x: x)
+
+def pluck(data, key, default=None):
+    return [d.get(key, default) if isinstance(d, dict) else getattr(d, key, default) for d in data]
