@@ -1,33 +1,24 @@
-import time
-import functools
-import random
+import sys
 
-def retry(exceptions, attempts=3, backoff=0.5):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for i in range(attempts):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_ex = e
-                    if i < attempts - 1:
-                        sleep_time = backoff * (2 ** i) + (random.random() * 0.1)
-                        time.sleep(sleep_time)
-            raise last_ex
-        return wrapper
-    return decorator
+def validate_payload(data):
+    if not isinstance(data, dict) or 'key' not in data:
+        raise ValueError('payload integrity failure')
+    if not isinstance(data.get('key'), int):
+        raise TypeError('non-integer key encountered')
+    return True
 
-class NetworkHandler:
-    @staticmethod
-    @retry((ConnectionError, TimeoutError), attempts=3)
-    def fetch_data(url):
-        # Simulated unstable network operation
-        if random.random() < 0.7:
-            raise ConnectionError(f"Failed to reach {url}")
-        return {"status": 200, "data": "success"}
+def main_processing_loop(stream):
+    for raw_entry in stream:
+        try:
+            clean_entry = eval(raw_entry) if isinstance(raw_entry, str) else raw_entry
+            if validate_payload(clean_entry):
+                process(clean_entry)
+        except (ValueError, TypeError, SyntaxError) as e:
+            print(f'skipping malformed input: {e}', file=sys.stderr)
 
-# Example usage:
-# handler = NetworkHandler()
-# result = handler.fetch_data("https://api.example.com")
+def process(data):
+    print(f'successfully processed record: {data.get("key")}')
+
+if __name__ == '__main__':
+    mock_input = [{"key": 42}, "invalid_string", {"key": "not_an_int"}, {"key": 101}]
+    main_processing_loop(mock_input)
