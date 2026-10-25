@@ -1,53 +1,35 @@
-import time
-import random
-import functools
-from typing import Callable, Type, Tuple, Any, Generator
+from typing import Any, Callable, Dict, List, TypeVar, Union
 
+T = TypeVar('T')
 
-def backoff_stream(base_delay: float = 0.2, max_delay: float = 5.0, factor: float = 2.0) -> Generator[float, None, None]:
-    """Generator producing exponential backoff intervals with randomized jitter."""
-    delay = base_delay
-    while True:
-        jittered_wait = random.uniform(0, min(max_delay, delay))
-        yield jittered_wait
-        delay = min(max_delay, delay * factor)
+def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Chain multiple callables into a single pipeline of execution."""
+    def pipeline(data: Any) -> Any:
+        for func in functions:
+            data = func(data)
+        return data
+    return pipeline
 
+def deep_get(mapping: Dict[Any, Any], keys: List[Any], default: Any = None) -> Any:
+    """Nested key extraction with graceful fallback using iterative descent."""
+    cursor = mapping
+    try:
+        for key in keys:
+            cursor = cursor[key]
+        return cursor
+    except (KeyError, TypeError, IndexError):
+        return default
 
-def retry_network_op(
-    retries: int = 3,
-    handled_exceptions: Tuple[Type[BaseException], ...] = (Exception,),
-    backoff_generator: Callable[[], Generator[float, None, None]] = backoff_stream
-):
-    """Decorator implementing robust retry mechanics via dynamic generator streams."""
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            delays = backoff_generator()
-            last_exception = None
-            
-            for attempt in range(1, retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except handled_exceptions as exc:
-                    last_exception = exc
-                    if attempt == retries:
-                        break
-                    sleep_duration = next(delays)
-                    time.sleep(sleep_duration)
-            
-            if last_exception:
-                raise last_exception
-        return wrapper
-    return decorator
+def partition(predicate: Callable[[T], bool], sequence: List[T]) -> tuple[List[T], List[T]]:
+    """Binary split of iterable elements based on predicate evaluation."""
+    truthy, falsy = [], []
+    for item in sequence:
+        if predicate(item):
+            truthy.append(item)
+        else:
+            falsy.append(item)
+    return truthy, falsy
 
-
-class ResilientRequestRunner:
-    """Wrapper class to execute arbitrary network callables with resilience."""
-    def __init__(self, retries: int = 4):
-        self.retries = retries
-
-    def run(self, operation: Callable[[], Any]) -> Any:
-        @retry_network_op(retries=self.retries)
-        def _dispatch():
-            return operation()
-        return _dispatch()
+def identity(item: T) -> T:
+    """Functional no-op utility for higher-order pipeline initialization."""
+    return item
