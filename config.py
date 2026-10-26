@@ -3,23 +3,33 @@ import os
 from typing import Any, Dict
 
 class ConfigLoader:
-    """A magical config loader that defies boredom."""
     def __init__(self, defaults: Dict[str, Any]):
         self._data = defaults
 
+    def load(self, path: str) -> 'ConfigLoader':
+        if os.path.exists(path):
+            with open(path, 'r') as f:
+                try:
+                    self._data.update(json.load(f))
+                except json.JSONDecodeError:
+                    pass
+        return self
+
     def __getattr__(self, name: str) -> Any:
-        return self._data.get(name)
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(f'config key {name} missing')
 
-    def load_json(self, filepath: str) -> None:
-        if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                file_data = json.load(f)
-                self._data.update({k: v for k, v in file_data.items() if v is not None})
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
 
-    def __repr__(self) -> str:
-        return f"<ConfigLoader keys={list(self._data.keys())}>"
+    @property
+    def settings(self) -> Dict[str, Any]:
+        return self._data
 
-def get_config(defaults: Dict[str, Any], path: str = 'config.json') -> ConfigLoader:
-    loader = ConfigLoader(defaults)
-    loader.load_json(path)
-    return loader
+def get_config(path: str, defaults: Dict[str, Any] = None) -> ConfigLoader:
+    return ConfigLoader(defaults or {}).load(path)
+
+if __name__ == '__main__':
+    cfg = get_config('settings.json', {'host': 'localhost', 'port': 8080})
+    print(f'current endpoint: {cfg.host}:{cfg.port}')
