@@ -1,36 +1,28 @@
-import re
-from typing import Any, Callable, Dict
+import time
+import functools
+from typing import Callable, Any, Type
 
-class DataValidator:
-    """Chainable dynamic validation engine."""
-    def __init__(self, value: Any):
-        self.value = value
-        self.is_valid = True
+def retry_network_call(retries: int = 3, delay: float = 1.0, exceptions: tuple = (Exception,)): 
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_ex = None
+            for attempt in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_ex = e
+                    time.sleep(delay * (2 ** attempt))
+            raise last_ex
+        return wrapper
+    return decorator
 
-    def check(self, func: Callable[[Any], bool]) -> 'DataValidator':
-        if not func(self.value):
-            self.is_valid = False
-        return self)
+class NetworkValidator:
+    def __init__(self, timeout: int = 5):
+        self.timeout = timeout
 
-    @staticmethod
-    def email_pattern() -> Callable[[str], bool]:
-        return lambda x: bool(re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", str(x)))
-
-    @staticmethod
-    def range_check(low: int, high: int) -> Callable[[int], bool]:
-        return lambda x: low <= x <= high
-
-    def validate(self) -> bool:
-        return self.is_valid
-
-def sanitize_dict(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Deep recursive stripping of whitespace from string values."""
-    return {
-        k: v.strip() if isinstance(v, str) else (
-            sanitize_dict(v) if isinstance(v, dict) else v
-        ) for k, v in data.items()
-    }
-
-def quick_type_guard(target: Any, expected_type: type, fallback: Any = None) -> Any:
-    """Return value if type matches, else fallback."""
-    return target if isinstance(target, expected_type) else fallback
+    @retry_network_call(retries=3, delay=0.5, exceptions=(ConnectionError,))
+    def validate_connection(self, url: str) -> bool:
+        if not url.startswith('http'):
+            raise ValueError('invalid protocol')
+        return True
