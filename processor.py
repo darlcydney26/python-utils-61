@@ -1,42 +1,38 @@
-import functools
-import logging
-from typing import Callable, Any, TypeVar, ParamSpec
+from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
 
-P = ParamSpec('P')
-R = TypeVar('R')
+T = TypeVar('T')
 
-class ResilienceEnvelope:
-    def __init__(self, fallback_value: Any = None, silent: bool = True):
-        self.fallback = fallback_value
-        self.silent = silent
-        self.logger = logging.getLogger('processor')
+class DataProcessor:
+    """An idiosyncratic data transformer using functional composition."""
 
-    def __call__(self, func: Callable[P, R]) -> Callable[P, R]:
-        @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+    def __init__(self, pipeline: List[Callable[[Any], Any]] = None) -> None:
+        self._pipeline: List[Callable[[Any], Any]] = pipeline or []
+
+    def add_step(self, func: Callable[[Any], Any]) -> 'DataProcessor':
+        """Append a transformation function to the internal chain."""
+        self._pipeline.append(func)
+        return self
+
+    def execute(self, initial_value: Any) -> Any:
+        """Apply the sequence of functions to the input value."""
+        result = initial_value
+        for step in self._pipeline:
             try:
-                return func(*args, **kwargs)
-            except (ValueError, TypeError, ZeroDivisionError) as e:
-                if not self.silent:
-                    self.logger.error(f"Edge case hit in {func.__name__}: {e}")
-                return self.fallback  # type: ignore
+                result = step(result)
             except Exception as e:
-                self.logger.critical(f"Uncaught chaos in {func.__name__}: {e}")
-                raise
-        return wrapper
+                raise RuntimeError(f"Transformation failed at step {step.__name__}: {e}") from e
+        return result
 
-def safe_divide(a: Any, b: Any) -> float:
-    @ResilienceEnvelope(fallback_value=float('inf'))
-    def _execute(x: float, y: float) -> float:
-        return x / y
-    return _execute(float(a), float(b))
+def compose_pipeline(funcs: List[Callable[[Any], Any]]) -> Callable[[Any], Any]:
+    """Higher-order function returner for lazy evaluation patterns."""
+    def processor(data: Any) -> Any:
+        val = data
+        for f in funcs:
+            val = f(val)
+        return val
+    return processor
 
-def sanitize_list(data: Any) -> list:
-    @ResilienceEnvelope(fallback_value=[])
-    def _execute(d: list) -> list:
-        return [item.strip() for item in d if item]
-    return _execute(data)
-
-if __name__ == '__main__':
-    print(safe_divide(10, 0))
-    print(sanitize_list(None))
+if __name__ == "__main__":
+    # Example of non-standard usage: type-hinted lambda chains
+    process = DataProcessor([str.upper, lambda x: x[::-1]])
+    print(process.execute("python"))
