@@ -1,59 +1,65 @@
-import os
 import json
-from collections import ChainMap
-from typing import Any, Dict, Optional
+import os
+from typing import Any, Dict, Iterator, Mapping, Optional
 
 
-class ConfigLoader:
-    """Dynamic configuration loader with env overrides and cascading defaults."""
+class ConfigNode(Mapping):
+    """Hierarchical config loader with default fallback and environment resolution."""
 
-    def __init__(self, defaults: Optional[Dict[str, Any]] = None, env_prefix: str = "APP_"):
+    def __init__(self, defaults: Optional[Dict[str, Any]] = None, env_prefix: str = "CONFIG_") -> None:
         self._defaults = defaults or {}
-        self._env_prefix = env_prefix
         self._overrides: Dict[str, Any] = {}
-        self._refresh()
+        self._prefix = env_prefix
 
-    def _refresh(self) -> None:
-        env_data = {}
-        for key, default_val in self._defaults.items():
-            env_key = f"{self._env_prefix}{key.upper()}"
-            if env_key in os.environ:
-                raw_val = os.environ[env_key]
-                target_type = type(default_val) if default_val is not None else str
-                try:
-                    if target_type is bool:
-                        env_data[key] = raw_val.lower() in ("1", "true", "yes", "on")
-                    else:
-                        env_data[key] = target_type(raw_val)
-                except (ValueError, TypeError):
-                    env_data[key] = raw_val
+    def load_file(self, path: str) -> "ConfigNode":
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as file:
+                self._overrides.update(json.load(file))
+        return self
 
-        self._chain = ChainMap(self._overrides, env_data, self._defaults)
-
-    def load_dict(self, data: Dict[str, Any]) -> "ConfigLoader":
+    def load_dict(self, data: Dict[str, Any]) -> "ConfigNode":
         self._overrides.update(data)
-        self._refresh()
         return self
 
-    def load_json(self, filepath: str) -> "ConfigLoader":
-        if os.path.exists(filepath):
-            with open(filepath, "r", encoding="utf-8") as f:
-                self.load_dict(json.load(f))
-        return self
+    def _resolve_env(self, key: str) -> Any:
+        env_key = f"{self._prefix}{key.upper()}"
+        if env_key in os.environ:
+            raw = os.environ[env_key]
+            try:
+                return json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                return raw
+        return None
 
     def __getitem__(self, key: str) -> Any:
-        return self._chain[key]
+        env_val = self._resolve_env(key)
+        if env_val is not None:
+            val = env_val
+        elif key in self._overrides:
+            val = self._overrides[key]
+        elif key in self._defaults:
+            val = self._defaults[key]
+        else:
+            raise KeyError(key)
+
+        if isinstance(val, dict):
+            return ConfigNode(val, env_prefix=f"{self._prefix}{key.upper()}_")
+        return val
 
     def __getattr__(self, name: str) -> Any:
-        if name.startswith("_"):
-            raise AttributeError(f"No attribute {name}")
         try:
-            return self._chain[name]
+            return self[name]
         except KeyError:
-            raise AttributeError(f"Configuration key '{name}' not found") from None
+            raise AttributeError(f"Config option '{name}' not found") from None
 
-    def get(self, key: str, fallback: Any = None) -> Any:
-        return self._chain.get(key, fallback)
+    def __iter__(self) -> Iterator[str]:
+        return iter(set(self._defaults.keys()) | set(self._overrides.keys()))
 
-    def as_dict(self) -> Dict[str, Any]:
-        return dict(self._chain)
+    def __len__(self) -> int:
+        return len(set(self._defaults.keys()) | set(self._overrides.keys()))
+
+    def get(self, key: str, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
