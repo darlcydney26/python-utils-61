@@ -1,41 +1,60 @@
-import collections
-import functools
-import itertools
+"""Functional pipeline utilities for chaining data transformations."""
 
-def batcher(iterable, size):
-    it = iter(iterable)
-    while True:
-        chunk = tuple(itertools.islice(it, size))
-        if not chunk: break
-        yield chunk
+from functools import reduce
+from typing import Any, Callable, Generic, TypeVar
 
-def memoize_with_expiry(seconds):
-    def decorator(func):
-        cache = {}
-        @functools.wraps(func)
-        def wrapper(*args):
-            now = __import__('time').time()
-            if args in cache:
-                result, timestamp = cache[args]
-                if now - timestamp < seconds:
-                    return result
-            result = func(*args)
-            cache[args] = (result, now)
-            return result
-        return wrapper
-    return decorator
+T = TypeVar("T")
+R = TypeVar("R")
 
-def deep_flatten(items):
-    for x in items:
-        if isinstance(x, collections.abc.Iterable) and not isinstance(x, (str, bytes)):
-            yield from deep_flatten(x)
-        else:
-            yield x
 
-def compose(*functions):
-    def compose2(f, g):
-        return lambda x: f(g(x))
-    return functools.reduce(compose2, functions, lambda x: x)
+class Pipe(Generic[T]):
+    """A creative wrapper allowing infix pipelines using the '>>' operator.
 
-def pluck(data, key, default=None):
-    return [d.get(key, default) if isinstance(d, dict) else getattr(d, key, default) for d in data]
+    Example:
+        >>> Pipe([1, 2, 3]) >> (lambda x: [i * 2 for i in x]) >> sum
+        12
+    """
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: T) -> None:
+        """Initialize the pipeline container with an initial value."""
+        self._value: T = value
+
+    def __rshift__(self, func: Callable[[T], R]) -> "Pipe[R]":
+        """Pass the current pipeline value into the provided function."""
+        return Pipe[R](func(self._value))
+
+    def unwrap(self) -> T:
+        """Extract and return the underlying transformed value."""
+        return self._value
+
+    def __repr__(self) -> str:
+        return f"Pipe({self._value!r})"
+
+
+def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Compose multiple functions right-to-left into a single function.
+
+    Args:
+        *funcs: Functions to compose together.
+
+    Returns:
+        A new function representing the composed operations.
+    """
+    return reduce(lambda f, g: lambda x: f(g(x)), funcs, lambda x: x)
+
+
+def tap(action: Callable[[T], None]) -> Callable[[T], T]:
+    """Create a side-effect function that inspects a value and returns it.
+
+    Args:
+        action: A callable invoked with the current item for side effects.
+
+    Returns:
+        A function that executes the action and returns the input unaltered.
+    """
+    def _inspector(val: T) -> T:
+        action(val)
+        return val
+    return _inspector
