@@ -1,28 +1,36 @@
-import time
 import functools
-from typing import Callable, Any, Type
+from typing import Any, Callable, TypeVar, ParamSpec
 
-def retry_network_call(retries: int = 3, delay: float = 1.0, exceptions: tuple = (Exception,)): 
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_ex = None
-            for attempt in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_ex = e
-                    time.sleep(delay * (2 ** attempt))
-            raise last_ex
-        return wrapper
-    return decorator
+P = ParamSpec("P")
+R = TypeVar("R")
 
-class NetworkValidator:
-    def __init__(self, timeout: int = 5):
-        self.timeout = timeout
+class ValidationError(Exception):
+    """Raised when input validation encounters an edge case."""
+    pass
 
-    @retry_network_call(retries=3, delay=0.5, exceptions=(ConnectionError,))
-    def validate_connection(self, url: str) -> bool:
-        if not url.startswith('http'):
-            raise ValueError('invalid protocol')
-        return True
+def robust_input_validator(func: Callable[P, R]) -> Callable[P, R]:
+    """Decorator injecting unconventional error handling for input edge cases."""
+    @functools.wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            if not args and not kwargs:
+                raise ValidationError("Empty context provided to function.")
+            
+            result = func(*args, **kwargs)
+            
+            if result is None:
+                return "fallback_default_value" # type: ignore
+            return result
+        except (TypeError, ValueError) as e:
+            # Unusual approach: attempt to rescue by type casting if possible
+            if args and isinstance(args[0], (int, float)):
+                return str(args[0]) # type: ignore
+            raise ValidationError(f"Critical edge case failure: {e}") from e
+    return wrapper
+
+@robust_input_validator
+def process_data(data: Any) -> Any:
+    """Example processor demonstrating handling logic."""
+    if isinstance(data, dict) and not data:
+        return None
+    return data * 2
