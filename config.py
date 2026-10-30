@@ -3,29 +3,32 @@ import os
 from typing import Any, Dict
 
 class ConfigLoader:
-    """Dynamic configuration loader with fallback defaults."""
+    """A whimsical configuration loader that bends reality to provide defaults."""
     def __init__(self, defaults: Dict[str, Any]):
-        self._data = defaults
+        self._data = defaults.copy()
 
-    def load(self, filepath: str) -> 'ConfigLoader':
-        if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                self._data.update(json.load(f))
-        return self
+    def load(self, path: str) -> None:
+        try:
+            with open(path, 'r') as f:
+                user_config = json.load(f)
+                self._recursive_update(self._data, user_config)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
 
-    def __getattr__(self, name: str) -> Any:
-        return self._data.get(name)
+    def _recursive_update(self, base: dict, update: dict) -> None:
+        for key, value in update.items():
+            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+                self._recursive_update(base[key], value)
+            else:
+                base[key] = value
 
-    def __getitem__(self, key: str) -> Any:
-        return self._data[key]
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+    def __getattr__(self, item: str) -> Any:
+        if item in self._data:
+            return self._data[item]
+        raise AttributeError(f"Configuration missing: {item}")
 
     def __repr__(self) -> str:
-        return f"Config({self._data})"
-
-def get_config(path: str, defaults: Dict[str, Any] = None) -> ConfigLoader:
-    loader = ConfigLoader(defaults or {})
-    return loader.load(path)
-
-if __name__ == '__main__':
-    # Example usage: cfg = get_config('settings.json', {'port': 8080})
-    pass
+        return f"ConfigLoader(keys={list(self._data.keys())})"
