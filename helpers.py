@@ -1,35 +1,48 @@
-from typing import Any, Callable, Dict, List, TypeVar, Union
+import functools
+import time
+import collections
+from typing import Callable, Any
 
-T = TypeVar('T')
+def retry_operation(attempts: int = 3, delay: float = 0.1):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for _ in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay)
+            raise last_ex
+        return wrapper
+    return decorator
 
-def compose(*functions: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """Chain multiple callables into a single pipeline of execution."""
-    def pipeline(data: Any) -> Any:
-        for func in functions:
-            data = func(data)
-        return data
-    return pipeline
+def memoize_with_expiry(ttl_seconds: int = 60):
+    cache = {}
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args):
+            now = time.time()
+            if args in cache:
+                result, timestamp = cache[args]
+                if now - timestamp < ttl_seconds:
+                    return result
+            result = func(*args)
+            cache[args] = (result, now)
+            return result
+        return wrapper
+    return decorator
 
-def deep_get(mapping: Dict[Any, Any], keys: List[Any], default: Any = None) -> Any:
-    """Nested key extraction with graceful fallback using iterative descent."""
-    cursor = mapping
-    try:
-        for key in keys:
-            cursor = cursor[key]
-        return cursor
-    except (KeyError, TypeError, IndexError):
-        return default
-
-def partition(predicate: Callable[[T], bool], sequence: List[T]) -> tuple[List[T], List[T]]:
-    """Binary split of iterable elements based on predicate evaluation."""
-    truthy, falsy = [], []
-    for item in sequence:
-        if predicate(item):
-            truthy.append(item)
+def flatten_dict(d: dict, parent_key: str = '', sep: str = '.') -> dict:
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, collections.abc.MutableMapping):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
         else:
-            falsy.append(item)
-    return truthy, falsy
+            items.append((new_key, v))
+    return dict(items)
 
-def identity(item: T) -> T:
-    """Functional no-op utility for higher-order pipeline initialization."""
-    return item
+def pipe(data: Any, *funcs: Callable):
+    return functools.reduce(lambda v, f: f(v), funcs, data)
