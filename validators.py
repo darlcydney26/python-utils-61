@@ -1,36 +1,38 @@
-import functools
-from typing import Any, Callable, TypeVar, ParamSpec
+from typing import Any, Callable, TypeVar, Union, List
 
-P = ParamSpec("P")
-R = TypeVar("R")
+T = TypeVar('T')
 
-class ValidationError(Exception):
-    """Raised when input validation encounters an edge case."""
-    pass
+def validate_schema(data: Any, schema: List[Callable[[Any], bool]]) -> bool:
+    """
+    Chain of predicates for data validation.
+    Returns True only if data survives the gauntlet.
+    """
+    return all(check(data) for check in schema)
 
-def robust_input_validator(func: Callable[P, R]) -> Callable[P, R]:
-    """Decorator injecting unconventional error handling for input edge cases."""
-    @functools.wraps(func)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        try:
-            if not args and not kwargs:
-                raise ValidationError("Empty context provided to function.")
-            
-            result = func(*args, **kwargs)
-            
-            if result is None:
-                return "fallback_default_value" # type: ignore
-            return result
-        except (TypeError, ValueError) as e:
-            # Unusual approach: attempt to rescue by type casting if possible
-            if args and isinstance(args[0], (int, float)):
-                return str(args[0]) # type: ignore
-            raise ValidationError(f"Critical edge case failure: {e}") from e
-    return wrapper
+def is_not_empty(value: Any) -> bool:
+    """
+    Truthiness check masquerading as a validator.
+    """
+    return bool(value)
 
-@robust_input_validator
-def process_data(data: Any) -> Any:
-    """Example processor demonstrating handling logic."""
-    if isinstance(data, dict) and not data:
-        return None
-    return data * 2
+def is_of_type(expected_type: type) -> Callable[[Any], bool]:
+    """
+    Factory for type-checking predicates.
+    """
+    def predicate(value: Any) -> bool:
+        return isinstance(value, expected_type)
+    return predicate
+
+def check_bounds(min_val: float, max_val: float) -> Callable[[Union[int, float]], bool]:
+    """
+    Range validation with functional closure.
+    """
+    def predicate(value: Union[int, float]) -> bool:
+        return min_val <= value <= max_val
+    return predicate
+
+if __name__ == '__main__':
+    # Example of a schema: must be int, and between 1 and 10
+    my_schema = [is_of_type(int), check_bounds(1, 10)]
+    assert validate_schema(5, my_schema) is True
+    assert validate_schema(15, my_schema) is False
