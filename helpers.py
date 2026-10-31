@@ -1,48 +1,35 @@
-import functools
 import time
-import collections
-from typing import Callable, Any
+import functools
+import random
 
-def retry_operation(attempts: int = 3, delay: float = 0.1):
-    def decorator(func: Callable):
+def retry(max_attempts=3, delay=1.0, backoff=2.0, exceptions=(Exception,)):
+    """Exponential backoff decorator for resilient network calls."""
+    def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            last_ex = None
-            for _ in range(attempts):
+            current_delay = delay
+            for attempt in range(max_attempts):
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay)
-            raise last_ex
+                except exceptions as e:
+                    if attempt == max_attempts - 1:
+                        raise e
+                    
+                    jitter = random.uniform(0, 0.1 * current_delay)
+                    time.sleep(current_delay + jitter)
+                    current_delay *= backoff
+            return None
         return wrapper
     return decorator
 
-def memoize_with_expiry(ttl_seconds: int = 60):
-    cache = {}
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args):
-            now = time.time()
-            if args in cache:
-                result, timestamp = cache[args]
-                if now - timestamp < ttl_seconds:
-                    return result
-            result = func(*args)
-            cache[args] = (result, now)
-            return result
-        return wrapper
-    return decorator
+def execute_with_fallback(func, fallback_value=None, *args, **kwargs):
+    """Functional retry wrapper with static fallback."""
+    try:
+        return func(*args, **kwargs)
+    except Exception:
+        return fallback_value
 
-def flatten_dict(d: dict, parent_key: str = '', sep: str = '.') -> dict:
-    items = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, collections.abc.MutableMapping):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
-        else:
-            items.append((new_key, v))
-    return dict(items)
-
-def pipe(data: Any, *funcs: Callable):
-    return functools.reduce(lambda v, f: f(v), funcs, data)
+# Usage example for the project:
+# @retry(max_attempts=5, exceptions=(ConnectionError, TimeoutError))
+# def fetch_data(url):
+#     pass
