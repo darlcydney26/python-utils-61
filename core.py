@@ -1,39 +1,32 @@
-import functools
 import time
+import functools
+import random
+from typing import Callable, Any
 
-class memoize_with_ttl:
-    def __init__(self, ttl=60):
-        self.cache = {}
-        self.ttl = ttl
-    def __call__(self, func):
+def retry_operation(max_attempts: int = 3, base_delay: float = 1.0):
+    def decorator(func: Callable):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (args, tuple(sorted(kwargs.items())))
-            now = time.monotonic()
-            if key in self.cache:
-                val, timestamp = self.cache[key]
-                if now - timestamp < self.ttl:
-                    return val
-            result = func(*args, **kwargs)
-            self.cache[key] = (result, now)
-            return result
+        def wrapper(*args, **kwargs) -> Any:
+            last_exception = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        sleep_time = base_delay * (2 ** attempt) + random.uniform(0, 0.1)
+                        time.sleep(sleep_time)
+            raise last_exception
         return wrapper
+    return decorator
 
-def heavy_computation(x, factor=2):
-    time.sleep(0.5)
-    return x * factor
+class NetworkClient:
+    def __init__(self, endpoint: str):
+        self.endpoint = endpoint
 
-@memoize_with_ttl(ttl=5)
-def optimized_process(data):
-    return heavy_computation(data)
-
-def batch_process(items):
-    """Vectorized-style application of cached operations."""
-    return [optimized_process(i) for i in items]
-
-if __name__ == '__main__':
-    # Example usage for performance validation
-    start = time.monotonic()
-    batch_process([10, 20, 10])
-    duration = time.monotonic() - start
-    print(f'execution completed in {duration:.4f} seconds')
+    @retry_operation(max_attempts=3, base_delay=0.5)
+    def fetch_data(self):
+        # Simulate potential network flakiness
+        if random.random() < 0.7:
+            raise ConnectionError('Temporary connection drop')
+        return {'status': 'success', 'data': 'payload'}
