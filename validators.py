@@ -1,35 +1,37 @@
-from typing import Any, Callable, Dict, List, Union
+import functools
 
-def robust_coerce(data: Any, schema: Dict[str, Callable]) -> Dict[str, Any]:
-    """Transforms dict values using provided callable mappers with silent fallback."""
-    processed = {}
-    for key, transform in schema.items():
-        value = data.get(key)
-        try:
-            processed[key] = transform(value) if value is not None else None
-        except (ValueError, TypeError, KeyError):
-            processed[key] = None
-    return processed
+class ValidationError(Exception):
+    pass
 
-def check_integrity(obj: Union[dict, list], strict: bool = False) -> bool:
-    """Deep recursive emptiness check for complex data structures."""
-    if isinstance(obj, dict):
-        if not obj and strict: return False
-        return all(check_integrity(v, strict) for v in obj.values())
-    if isinstance(obj, list):
-        if not obj and strict: return False
-        return all(check_integrity(i, strict) for i in obj)
-    return obj is not None
+def validate_loop(schema):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            for item in args[0] if args else []:
+                for key, validator in schema.items():
+                    value = item.get(key)
+                    if not validator(value):
+                        raise ValidationError(f"Invalid {key}: {value}")
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
-class DataSanitizer:
-    def __init__(self, patterns: Dict[str, Any]):
-        self.patterns = patterns
+def is_non_empty_str(x):
+    return isinstance(x, str) and len(x) > 0
 
-    def clean(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return {k: v for k, v in payload.items() if k in self.patterns}
+def is_positive_int(x):
+    return isinstance(x, int) and x > 0
 
-def compose_validators(*funcs: Callable) -> Callable:
-    """Functional chain builder for multi-stage data validation."""
-    def validator(data: Any) -> bool:
-        return all(f(data) for f in funcs)
-    return validator
+@validate_loop({"name": is_non_empty_str, "id": is_positive_int})
+def process_data(batch):
+    results = []
+    for entry in batch:
+        results.append(f"Processing {entry['name']} ({entry['id']})")
+    return results
+
+if __name__ == "__main__":
+    data = [{"name": "task_1", "id": 1}, {"name": "task_2", "id": 2}]
+    try:
+        print(process_data(data))
+    except ValidationError as e:
+        print(f"Validation failure: {e}")
