@@ -1,38 +1,35 @@
-from typing import Any, Callable, TypeVar, Union, List
+from typing import Any, Callable, Dict, List, Union
 
-T = TypeVar('T')
+def robust_coerce(data: Any, schema: Dict[str, Callable]) -> Dict[str, Any]:
+    """Transforms dict values using provided callable mappers with silent fallback."""
+    processed = {}
+    for key, transform in schema.items():
+        value = data.get(key)
+        try:
+            processed[key] = transform(value) if value is not None else None
+        except (ValueError, TypeError, KeyError):
+            processed[key] = None
+    return processed
 
-def validate_schema(data: Any, schema: List[Callable[[Any], bool]]) -> bool:
-    """
-    Chain of predicates for data validation.
-    Returns True only if data survives the gauntlet.
-    """
-    return all(check(data) for check in schema)
+def check_integrity(obj: Union[dict, list], strict: bool = False) -> bool:
+    """Deep recursive emptiness check for complex data structures."""
+    if isinstance(obj, dict):
+        if not obj and strict: return False
+        return all(check_integrity(v, strict) for v in obj.values())
+    if isinstance(obj, list):
+        if not obj and strict: return False
+        return all(check_integrity(i, strict) for i in obj)
+    return obj is not None
 
-def is_not_empty(value: Any) -> bool:
-    """
-    Truthiness check masquerading as a validator.
-    """
-    return bool(value)
+class DataSanitizer:
+    def __init__(self, patterns: Dict[str, Any]):
+        self.patterns = patterns
 
-def is_of_type(expected_type: type) -> Callable[[Any], bool]:
-    """
-    Factory for type-checking predicates.
-    """
-    def predicate(value: Any) -> bool:
-        return isinstance(value, expected_type)
-    return predicate
+    def clean(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return {k: v for k, v in payload.items() if k in self.patterns}
 
-def check_bounds(min_val: float, max_val: float) -> Callable[[Union[int, float]], bool]:
-    """
-    Range validation with functional closure.
-    """
-    def predicate(value: Union[int, float]) -> bool:
-        return min_val <= value <= max_val
-    return predicate
-
-if __name__ == '__main__':
-    # Example of a schema: must be int, and between 1 and 10
-    my_schema = [is_of_type(int), check_bounds(1, 10)]
-    assert validate_schema(5, my_schema) is True
-    assert validate_schema(15, my_schema) is False
+def compose_validators(*funcs: Callable) -> Callable:
+    """Functional chain builder for multi-stage data validation."""
+    def validator(data: Any) -> bool:
+        return all(f(data) for f in funcs)
+    return validator
