@@ -1,37 +1,33 @@
-import functools
+import re
+from typing import Any, Callable, Dict, List
 
-class ValidationError(Exception):
-    pass
+def validate_schema(data: Dict[str, Any], schema: Dict[str, Callable[[Any], bool]]) -> bool:
+    """Performs lazy schema validation using a functional mapping."""
+    for key, validator in schema.items():
+        if key not in data or not validator(data[key]):
+            return False
+    return True
 
-def validate_loop(schema):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            for item in args[0] if args else []:
-                for key, validator in schema.items():
-                    value = item.get(key)
-                    if not validator(value):
-                        raise ValidationError(f"Invalid {key}: {value}")
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
+def pattern_match(regex: str) -> Callable[[Any], bool]:
+    """Factory for regex-based input validation strings."""
+    def check(val: Any) -> bool:
+        return isinstance(val, str) and bool(re.match(regex, val))
+    return check
 
-def is_non_empty_str(x):
-    return isinstance(x, str) and len(x) > 0
+class InputProcessor:
+    def __init__(self, schema: Dict[str, Callable[[Any], bool]]):
+        self.schema = schema
 
-def is_positive_int(x):
-    return isinstance(x, int) and x > 0
+    def process_loop(self, items: List[Dict[str, Any]]):
+        """Main processing loop with inline integrity checks."""
+        for index, item in enumerate(items):
+            if not validate_schema(item, self.schema):
+                raise ValueError(f"Integrity failure at index {index}: {item}")
+            self.execute(item)
 
-@validate_loop({"name": is_non_empty_str, "id": is_positive_int})
-def process_data(batch):
-    results = []
-    for entry in batch:
-        results.append(f"Processing {entry['name']} ({entry['id']})")
-    return results
+    def execute(self, data: Dict[str, Any]):
+        """Placeholder for business logic downstream."""
+        print(f"Processing: {data}")
 
-if __name__ == "__main__":
-    data = [{"name": "task_1", "id": 1}, {"name": "task_2", "id": 2}]
-    try:
-        print(process_data(data))
-    except ValidationError as e:
-        print(f"Validation failure: {e}")
+# Example usage for integration in main loop
+# validator = InputProcessor({'id': lambda x: isinstance(x, int), 'tag': pattern_match(r'^[A-Z]{3}$')})
