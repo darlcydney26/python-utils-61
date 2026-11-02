@@ -1,35 +1,42 @@
-import time
 import functools
-import random
+from typing import Any, Callable, Dict, List, Union
 
-def retry(max_attempts=3, delay=1.0, backoff=2.0, exceptions=(Exception,)):
-    """Exponential backoff decorator for resilient network calls."""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            current_delay = delay
-            for attempt in range(max_attempts):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    if attempt == max_attempts - 1:
-                        raise e
-                    
-                    jitter = random.uniform(0, 0.1 * current_delay)
-                    time.sleep(current_delay + jitter)
-                    current_delay *= backoff
-            return None
-        return wrapper
-    return decorator
+def cast_structure(data: Any, schema: Dict[type, Callable]) -> Any:
+    """Recursively apply transformation functions to data structures."""
+    if isinstance(data, dict):
+        return {k: cast_structure(v, schema) for k, v in data.items()}
+    if isinstance(data, list):
+        return [cast_structure(item, schema) for item in data]
+    
+    for target_type, transform in schema.items():
+        if isinstance(data, target_type):
+            return transform(data)
+    return data
 
-def execute_with_fallback(func, fallback_value=None, *args, **kwargs):
-    """Functional retry wrapper with static fallback."""
+def deep_flatten(obj: Union[List, Dict]) -> List[Any]:
+    """Generator-based recursive flattening of nested collections."""
+    items = obj.values() if isinstance(obj, dict) else obj
+    result = []
+    for item in items:
+        if isinstance(item, (list, dict)):
+            result.extend(deep_flatten(item))
+        else:
+            result.append(item)
+    return result
+
+def memoize_data(func: Callable) -> Callable:
+    """Local cache decorator for static data transformations."""
+    cache = {}
+    @functools.wraps(func)
+    def wrapper(*args):
+        if args not in cache:
+            cache[args] = func(*args)
+        return cache[args]
+    return wrapper
+
+def get_path(data: Dict, path: str, default: Any = None) -> Any:
+    """Dot-notation navigation through nested dictionary objects."""
     try:
-        return func(*args, **kwargs)
-    except Exception:
-        return fallback_value
-
-# Usage example for the project:
-# @retry(max_attempts=5, exceptions=(ConnectionError, TimeoutError))
-# def fetch_data(url):
-#     pass
+        return functools.reduce(lambda d, key: d[key], path.split('.'), data)
+    except (KeyError, TypeError, AttributeError):
+        return default
