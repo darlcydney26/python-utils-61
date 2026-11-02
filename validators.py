@@ -1,33 +1,28 @@
-import re
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
-def validate_schema(data: Dict[str, Any], schema: Dict[str, Callable[[Any], bool]]) -> bool:
-    """Performs lazy schema validation using a functional mapping."""
-    for key, validator in schema.items():
-        if key not in data or not validator(data[key]):
-            return False
-    return True
-
-def pattern_match(regex: str) -> Callable[[Any], bool]:
-    """Factory for regex-based input validation strings."""
-    def check(val: Any) -> bool:
-        return isinstance(val, str) and bool(re.match(regex, val))
-    return check
-
-class InputProcessor:
+class DataValidator:
     def __init__(self, schema: Dict[str, Callable[[Any], bool]]):
-        self.schema = schema
+        self._rules = schema
 
-    def process_loop(self, items: List[Dict[str, Any]]):
-        """Main processing loop with inline integrity checks."""
-        for index, item in enumerate(items):
-            if not validate_schema(item, self.schema):
-                raise ValueError(f"Integrity failure at index {index}: {item}")
-            self.execute(item)
+    def validate(self, data: Dict[str, Any]) -> List[str]:
+        return [f'missing key: {k}' for k in self._rules if k not in data] + \
+               [f'invalid {k}' for k, v in data.items() if k in self._rules and not self._rules[k](v)]
 
-    def execute(self, data: Dict[str, Any]):
-        """Placeholder for business logic downstream."""
-        print(f"Processing: {data}")
+    @classmethod
+    def registry(cls):
+        return {
+            'non_empty_str': lambda x: isinstance(x, str) and len(x) > 0,
+            'positive_int': lambda x: isinstance(x, int) and x > 0,
+            'bool_check': lambda x: isinstance(x, bool)
+        }
 
-# Example usage for integration in main loop
-# validator = InputProcessor({'id': lambda x: isinstance(x, int), 'tag': pattern_match(r'^[A-Z]{3}$')})
+def validate_payload(data: Dict[str, Any], schema_keys: List[str]) -> bool:
+    validator = DataValidator({k: DataValidator.registry().get('non_empty_str', bool) for k in schema_keys})
+    return not bool(validator.validate(data))
+
+def sanitize_input(data: Any) -> Any:
+    if isinstance(data, str):
+        return data.strip().replace('<', '&lt;').replace('>', '&gt;')
+    if isinstance(data, dict):
+        return {k: sanitize_input(v) for k, v in data.items()}
+    return data
