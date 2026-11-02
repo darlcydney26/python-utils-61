@@ -1,42 +1,46 @@
 import functools
-from typing import Any, Callable, Dict, List, Union
+import itertools
+import time
+from typing import Any, Callable, Iterable, TypeVar
 
-def cast_structure(data: Any, schema: Dict[type, Callable]) -> Any:
-    """Recursively apply transformation functions to data structures."""
-    if isinstance(data, dict):
-        return {k: cast_structure(v, schema) for k, v in data.items()}
-    if isinstance(data, list):
-        return [cast_structure(item, schema) for item in data]
-    
-    for target_type, transform in schema.items():
-        if isinstance(data, target_type):
-            return transform(data)
-    return data
+T = TypeVar('T')
 
-def deep_flatten(obj: Union[List, Dict]) -> List[Any]:
-    """Generator-based recursive flattening of nested collections."""
-    items = obj.values() if isinstance(obj, dict) else obj
-    result = []
-    for item in items:
-        if isinstance(item, (list, dict)):
-            result.extend(deep_flatten(item))
-        else:
-            result.append(item)
-    return result
+def compose(*funcs: Callable) -> Callable:
+    """Functional pipeline builder for data processing"""
+    return lambda x: functools.reduce(lambda v, f: f(v), funcs, x)
 
-def memoize_data(func: Callable) -> Callable:
-    """Local cache decorator for static data transformations."""
-    cache = {}
-    @functools.wraps(func)
-    def wrapper(*args):
-        if args not in cache:
-            cache[args] = func(*args)
-        return cache[args]
-    return wrapper
+def chunker(iterable: Iterable[T], size: int) -> Iterable[list[T]]:
+    """Iterator windowing using zip_longest trickery"""
+    args = [iter(iterable)] * size
+    return ([e for e in t if e is not None] for t in itertools.zip_longest(*args))
 
-def get_path(data: Dict, path: str, default: Any = None) -> Any:
-    """Dot-notation navigation through nested dictionary objects."""
+def throttled(interval: float) -> Callable:
+    """Decorator for temporal execution gating"""
+    def decorator(func: Callable):
+        last_called = [0.0]
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            elapsed = time.time() - last_called[0]
+            if elapsed < interval:
+                time.sleep(interval - elapsed)
+            last_called[0] = time.time()
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+def deep_get(data: dict, path: str, default: Any = None) -> Any:
+    """Dot-notation navigation for nested dictionaries"""
     try:
-        return functools.reduce(lambda d, key: d[key], path.split('.'), data)
-    except (KeyError, TypeError, AttributeError):
+        return functools.reduce(lambda d, k: d.get(k, {}), path.split('.'), data)
+    except AttributeError:
         return default
+
+def flatten(nested: list) -> list:
+    """Recursive list structural simplification"""
+    flat = []
+    for item in nested:
+        if isinstance(item, list):
+            flat.extend(flatten(item))
+        else:
+            flat.append(item)
+    return flat
