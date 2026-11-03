@@ -1,34 +1,65 @@
-import json
 import os
-from typing import Any, Dict
+import sys
+from difflib import get_close_matches
+from typing import Any, Dict, Optional, Union
 
-class ConfigLoader:
-    """A whimsical configuration loader that bends reality to provide defaults."""
-    def __init__(self, defaults: Dict[str, Any]):
-        self._data = defaults.copy()
 
-    def load(self, path: str) -> None:
-        try:
-            with open(path, 'r') as f:
-                user_config = json.load(f)
-                self._recursive_update(self._data, user_config)
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+class ConfigLookupError(Exception):
+    """Raised when configuration resolution fails completely."""
+    pass
 
-    def _recursive_update(self, base: dict, update: dict) -> None:
-        for key, value in update.items():
-            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
-                self._recursive_update(base[key], value)
-            else:
-                base[key] = value
 
-    def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key, default)
+class ResilientConfig:
+    """Fault-tolerant configuration loader with fuzzy key matching and safe coercion."""
 
-    def __getattr__(self, item: str) -> Any:
-        if item in self._data:
-            return self._data[item]
-        raise AttributeError(f"Configuration missing: {item}")
+    def __init__(self, initial_data: Optional[Dict[str, Any]] = None):
+        self._store: Dict[str, Any] = {k.upper(): v for k, v in (initial_data or {}).items()}
+        self._defaults: Dict[str, Any] = {
+            "DEBUG": False,
+            "PORT": 8080,
+            "HOST": "127.0.0.1",
+            "TIMEOUT": 30.0,
+            "MAX_RETRIES": 3,
+        }
 
-    def __repr__(self) -> str:
-        return f"ConfigLoader(keys={list(self._data.keys())})"
+    def get(self, key: str, fallback: Any = None) -> Any:
+        """Retrieve value with environment fallback and fuzzy key match recovery."""
+        normalized_key = key.upper()
+        
+        if normalized_key in self._store:
+            return self._store[normalized_key]
+            
+        env_val = os.getenv(normalized_key)
+        if env_val is not None:
+            return self._coerce_type(env_val)
+
+        known_keys = list(set(self._store.keys()) | set(self._defaults.keys()))
+        matches = get_close_matches(normalized_key, known_keys, n=1, cutoff=0.7)
+        if matches:
+            matched_key = matches[0]
+            sys.stderr.write(f"[Config Warning] Misspelled key '{key}' resolved to '{matched_key}'.\n")
+            return self._store.get(matched_key, self._defaults.get(matched_key))
+
+        if normalized_key in self._defaults:
+            return self._defaults[normalized_key]
+
+        return fallback
+
+    def _coerce_type(self, value: str) -> Union[int, float, bool, str]:
+        """Safely infer and convert scalar string values."""
+        lowered = value.strip().lower()
+        if lowered in ("true", "1", "yes", "on"):
+            return True
+        if lowered in ("false", "0", "no", "off"):
+            return False
+        
+        for parser in (int, float):
+            try:
+                return parser(value)
+            except ValueError:
+                continue
+                
+        return value
+
+    def __getattr__(self, name: str) -> Any:
+        return self.get(name)
