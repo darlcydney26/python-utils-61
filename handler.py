@@ -1,56 +1,61 @@
-from typing import Any, Callable, Dict, List, Union
+import functools
+import random
+import time
+from typing import Any, Callable, Generator, TypeVar
 
-class DataMorpher:
-    """A lightweight, operator-driven data transformer for nested dictionaries."""
-    
-    def __init__(self, data: Union[Dict, List]):
-        self._data = data
+T = TypeVar("T")
 
-    @property
-    def raw(self) -> Any:
-        return self._data
+def _backoff_stream(
+    base_delay: float, max_delay: float, factor: float, jitter: bool
+) -> Generator[float, None, None]:
+    delay = base_delay
+    while True:
+        current = min(delay, max_delay)
+        if jitter:
+            current = random.uniform(0.5 * current, 1.5 * current)
+        yield current
+        delay *= factor
 
-    def __rshift__(self, func: Callable[[Any], Any]) -> "DataMorpher":
-        """Overloads `>>` operator to apply a transformation function recursively."""
-        def _apply(val):
-            if isinstance(val, dict):
-                return {k: _apply(v) for k, v in val.items()}
-            elif isinstance(val, list):
-                return [_apply(v) for v in val]
-            return func(val)
-        return DataMorpher(_apply(self._data))
+class NetworkRetryHandler:
+    def __init__(
+        self,
+        max_attempts: int = 5,
+        base_delay: float = 0.5,
+        max_delay: float = 10.0,
+        backoff_factor: float = 2.0,
+        jitter: bool = True,
+        retryable_exceptions: tuple[type[BaseException], ...] = (Exception,),
+    ):
+        self.max_attempts = max_attempts
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+        self.backoff_factor = backoff_factor
+        self.jitter = jitter
+        self.retryable_exceptions = retryable_exceptions
 
-    def __getitem__(self, key_path: str) -> Any:
-        """Access deeply nested keys using dot notation like `morpher['a.b.c']`."""
-        keys = key_path.split('.')
-        curr = self._data
-        for k in keys:
-            if isinstance(curr, dict) and k in curr:
-                curr = curr[k]
-            elif isinstance(curr, list) and k.isdigit() and int(k) < len(curr):
-                curr = curr[int(k)]
-            else:
-                return None
-        return curr
+    def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            delays = _backoff_stream(
+                self.base_delay, self.max_delay, self.backoff_factor, self.jitter
+            )
+            attempts = 0
+            while True:
+                try:
+                    attempts += 1
+                    return func(*args, **kwargs)
+                except self.retryable_exceptions as err:
+                    if attempts >= self.max_attempts:
+                        raise err
+                    wait_seconds = next(delays)
+                    time.sleep(wait_seconds)
 
-    def flatten(self, separator: str = ".") -> Dict[str, Any]:
-        """Flattens a nested dictionary or list hierarchy into single-level dict."""
-        out = {}
-        def _flatten(obj, prefix=""):
-            if isinstance(obj, dict):
-                for k, v in obj.items():
-                    _flatten(v, f"{prefix}{k}{separator}" if prefix else f"{k}{separator}")
-            elif isinstance(obj, list):
-                for idx, v in enumerate(obj):
-                    _flatten(v, f"{prefix}{idx}{separator}" if prefix else f"{idx}{separator}")
-            else:
-                out[prefix.rstrip(separator)] = obj
-        _flatten(self._data)
-        return out
+        return wrapper
 
-def process_nested_payload(payload: Dict[str, Any], transformations: List[Callable]) -> Dict[str, Any]:
-    """Helper function to run morph pipelines on standard dictionaries."""
-    morpher = DataMorpher(payload)
-    for transform in transformations:
-        morpher = morpher >> transform
-    return morpher.raw
+def retry_operation(
+    func: Callable[..., T],
+    retries: int = 3,
+    exceptions: tuple[type[BaseException], ...] = (Exception,),
+) -> Callable[..., T]:
+    handler = NetworkRetryHandler(max_attempts=retries, retryable_exceptions=exceptions)
+    return handler(func)
