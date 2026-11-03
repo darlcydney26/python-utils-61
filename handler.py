@@ -1,61 +1,87 @@
+"""Dynamic pipeline event handler with flexible callback registration."""
+
 import functools
-import random
-import time
-from typing import Any, Callable, Generator, TypeVar
+import inspect
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+)
 
 T = TypeVar("T")
+HandlerFunc = Callable[..., Any]
 
-def _backoff_stream(
-    base_delay: float, max_delay: float, factor: float, jitter: bool
-) -> Generator[float, None, None]:
-    delay = base_delay
-    while True:
-        current = min(delay, max_delay)
-        if jitter:
-            current = random.uniform(0.5 * current, 1.5 * current)
-        yield current
-        delay *= factor
 
-class NetworkRetryHandler:
-    def __init__(
-        self,
-        max_attempts: int = 5,
-        base_delay: float = 0.5,
-        max_delay: float = 10.0,
-        backoff_factor: float = 2.0,
-        jitter: bool = True,
-        retryable_exceptions: tuple[type[BaseException], ...] = (Exception,),
-    ):
-        self.max_attempts = max_attempts
-        self.base_delay = base_delay
-        self.max_delay = max_delay
-        self.backoff_factor = backoff_factor
-        self.jitter = jitter
-        self.retryable_exceptions = retryable_exceptions
+class DynamicHandler:
+    """A flexible task handler supporting topic-based dynamic execution pipelines.
 
-    def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> T:
-            delays = _backoff_stream(
-                self.base_delay, self.max_delay, self.backoff_factor, self.jitter
-            )
-            attempts = 0
-            while True:
-                try:
-                    attempts += 1
-                    return func(*args, **kwargs)
-                except self.retryable_exceptions as err:
-                    if attempts >= self.max_attempts:
-                        raise err
-                    wait_seconds = next(delays)
-                    time.sleep(wait_seconds)
+    Allows subscribing functions to specific topics and executing them sequentially
+    with positional or dynamic keyword arguments.
+    """
 
-        return wrapper
+    def __init__(self, name: str = "default_handler") -> None:
+        self.name: str = name
+        self._registry: Dict[str, List[HandlerFunc]] = {}
+        self._history: List[Tuple[str, Any]] = []
 
-def retry_operation(
-    func: Callable[..., T],
-    retries: int = 3,
-    exceptions: tuple[type[BaseException], ...] = (Exception,),
-) -> Callable[..., T]:
-    handler = NetworkRetryHandler(max_attempts=retries, retryable_exceptions=exceptions)
-    return handler(func)
+    def register(self, topic: str) -> Callable[[HandlerFunc], HandlerFunc]:
+        """Decorator to register a callable under a specific event topic.
+
+        Args:
+            topic: String identifier representing the event category.
+
+        Returns:
+            A decorator function that registers and returns the original function.
+        """
+        def decorator(func: HandlerFunc) -> HandlerFunc:
+            if topic not in self._registry:
+                self._registry[topic] = []
+            self._registry[topic].append(func)
+
+            @functools.wraps(func)
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                return func(*args, **kwargs)
+
+            return wrapper
+
+        return decorator
+
+    def dispatch(self, topic: str, *args: Any, **kwargs: Any) -> List[Any]:
+        """Execute all registered callbacks for a given topic.
+
+        Args:
+            topic: Event topic to trigger.
+            *args: Positional arguments passed to handlers.
+            **kwargs: Keyword arguments passed to handlers.
+
+        Returns:
+            List of return values produced by each executed handler.
+        """
+        results: List[Any] = []
+        handlers = self._registry.get(topic, [])
+        for handler in handlers:
+            sig = inspect.signature(handler)
+            if len(sig.parameters) == 0:
+                res = handler()
+            else:
+                res = handler(*args, **kwargs)
+            results.append(res)
+            self._history.append((topic, res))
+        return results
+
+    def get_history(self, topic: Optional[str] = None) -> List[Tuple[str, Any]]:
+        """Retrieve historical execution results.
+
+        Args:
+            topic: Optional topic filter. If None, returns all logged history.
+
+        Returns:
+            List of (topic, output_result) tuples matching the filter.
+        """
+        if topic is None:
+            return list(self._history)
+        return [item for item in self._history if item[0] == topic]
