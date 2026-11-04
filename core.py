@@ -1,44 +1,38 @@
-import inspect
-from typing import Callable, List, Any, Dict
+from typing import Any, Callable, Dict, List, Optional, Union
+from datetime import datetime
 
+class DataSynthesizer:
+    """Utility class for generating structured pseudo-random data streams."""
 
-class CoreOptimizer:
-    """Dynamic step-inlining engine for core utility execution pipelines."""
+    def __init__(self, seed: Optional[int] = None) -> None:
+        self.seed = seed or int(datetime.now().timestamp())
 
-    __slots__ = ('_compiled_cache',)
-
-    def __init__(self) -> None:
-        self._compiled_cache: Dict[str, Callable[[Any], Any]] = {}
-
-    def compile_pipeline(self, steps: List[Callable[[Any], Any]]) -> Callable[[Any], Any]:
-        """Inline a sequence of functions into a dynamic compiled handler to reduce call frames."""
-        cache_key = "|".join(f"{fn.__module__}.{fn.__qualname__}" for fn in steps)
-        if cache_key in self._compiled_cache:
-            return self._compiled_cache[cache_key]
-
-        namespace: Dict[str, Any] = {}
-        code_lines = ["def _inlined_pipeline(val):"]
+    def transform(self, data: List[Dict[str, Any]], key_map: Dict[str, Callable[[Any], Any]]) -> List[Dict[str, Any]]:
+        """
+        Applies a dictionary of transformation functions to specified keys in a list of data.
         
-        for idx, fn in enumerate(steps):
-            fn_alias = f"_fn_{idx}"
-            namespace[fn_alias] = fn
-            code_lines.append(f"    val = {fn_alias}(val)")
-            
-        code_lines.append("    return val")
-        code_str = "\n".join(code_lines)
+        :param data: List of dictionaries to transform
+        :param key_map: Mapping of key names to transformation functions
+        :return: Transformed list of dictionaries
+        """
+        return [{k: (key_map[k](v) if k in key_map else v) for k, v in item.items()} for item in data]
 
-        exec(code_str, namespace)
-        compiled_fn: Callable[[Any], Any] = namespace["_inlined_pipeline"]
-        self._compiled_cache[cache_key] = compiled_fn
-        return compiled_fn
+    def pluck(self, data: List[Dict[str, Any]], keys: List[str]) -> List[Dict[str, Any]]:
+        """
+        Filters dictionaries to keep only the provided keys.
+        
+        :param data: Input list of dictionaries
+        :param keys: Keys to retain
+        :return: Filtered list of dictionaries
+        """
+        return [{k: v for k, v in item.items() if k in keys} for item in data]
 
-
-_OPTIMIZER = CoreOptimizer()
-
-
-def run_optimized_sequence(data: Any, operations: List[Callable[[Any], Any]]) -> Any:
-    """Executes operations on input data using dynamically optimized pipeline execution."""
-    if not operations:
-        return data
-    pipeline = _OPTIMIZER.compile_pipeline(operations)
-    return pipeline(data)
+    def batch_process(self, items: List[Any], chunk_size: int = 10) -> List[List[Any]]:
+        """
+        Splits a flat list into chunks of a specific size.
+        
+        :param items: List to chunk
+        :param chunk_size: Size of each sub-list
+        :return: List of lists
+        """
+        return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
