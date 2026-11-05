@@ -1,46 +1,43 @@
-import functools
-import itertools
-import time
-from typing import Any, Callable, Iterable, TypeVar
+from typing import Any, Callable, Union
 
-T = TypeVar('T')
+class DataNavigator:
+    """Fluid wrapper for navigating and mutating arbitrary nested structures."""
 
-def compose(*funcs: Callable) -> Callable:
-    """Functional pipeline builder for data processing"""
-    return lambda x: functools.reduce(lambda v, f: f(v), funcs, x)
+    def __init__(self, data: Any) -> None:
+        self._data = data
 
-def chunker(iterable: Iterable[T], size: int) -> Iterable[list[T]]:
-    """Iterator windowing using zip_longest trickery"""
-    args = [iter(iterable)] * size
-    return ([e for e in t if e is not None] for t in itertools.zip_longest(*args))
+    @property
+    def value(self) -> Any:
+        return self._data
 
-def throttled(interval: float) -> Callable:
-    """Decorator for temporal execution gating"""
-    def decorator(func: Callable):
-        last_called = [0.0]
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            elapsed = time.time() - last_called[0]
-            if elapsed < interval:
-                time.sleep(interval - elapsed)
-            last_called[0] = time.time()
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
+    def __rshift__(self, target: Union[str, Callable[[Any], Any]]) -> "DataNavigator":
+        if callable(target):
+            return DataNavigator(target(self._data))
+        return DataNavigator(self._resolve_path(self._data, str(target)))
 
-def deep_get(data: dict, path: str, default: Any = None) -> Any:
-    """Dot-notation navigation for nested dictionaries"""
-    try:
-        return functools.reduce(lambda d, k: d.get(k, {}), path.split('.'), data)
-    except AttributeError:
-        return default
+    def _resolve_path(self, obj: Any, path: str) -> Any:
+        for key in path.split("."):
+            if not key or obj is None:
+                continue
+            if isinstance(obj, dict):
+                obj = obj.get(key)
+            elif isinstance(obj, (list, tuple)) and key.isdigit():
+                idx = int(key)
+                obj = obj[idx] if -len(obj) <= idx < len(obj) else None
+            else:
+                obj = getattr(obj, key, None)
+        return obj
 
-def flatten(nested: list) -> list:
-    """Recursive list structural simplification"""
-    flat = []
-    for item in nested:
-        if isinstance(item, list):
-            flat.extend(flatten(item))
-        else:
-            flat.append(item)
-    return flat
+    def apply(self, func: Callable[[Any], Any]) -> "DataNavigator":
+        return DataNavigator(func(self._data))
+
+    def unwrap(self, fallback: Any = None) -> Any:
+        return fallback if self._data is None else self._data
+
+
+def fluent_query(data: Any, *steps: Union[str, Callable[[Any], Any]], default: Any = None) -> Any:
+    """Queries complex data structures using mixed dot-paths and transform functions."""
+    nav = DataNavigator(data)
+    for step in steps:
+        nav = nav >> step
+    return nav.unwrap(default)
