@@ -1,60 +1,51 @@
-"""Functional pipeline utilities for chaining data transformations."""
+"""General helper utilities with functional and dynamic capabilities."""
 
 from functools import reduce
-from typing import Any, Callable, Generic, TypeVar
-
-T = TypeVar("T")
-R = TypeVar("R")
+from itertools import islice
+from typing import Any, Callable, Iterable, Iterator, Optional, Tuple
 
 
-class Pipe(Generic[T]):
-    """A creative wrapper allowing infix pipelines using the '>>' operator.
-
-    Example:
-        >>> Pipe([1, 2, 3]) >> (lambda x: [i * 2 for i in x]) >> sum
-        12
-    """
-
-    __slots__ = ("_value",)
-
-    def __init__(self, value: T) -> None:
-        """Initialize the pipeline container with an initial value."""
-        self._value: T = value
-
-    def __rshift__(self, func: Callable[[T], R]) -> "Pipe[R]":
-        """Pass the current pipeline value into the provided function."""
-        return Pipe[R](func(self._value))
-
-    def unwrap(self) -> T:
-        """Extract and return the underlying transformed value."""
-        return self._value
-
-    def __repr__(self) -> str:
-        return f"Pipe({self._value!r})"
+def dig(target: Any, path: str, default: Any = None, sep: str = ".") -> Any:
+    """Traverse nested structures (dicts, lists, objects) using dot paths."""
+    curr = target
+    for key in path.split(sep):
+        if curr is None:
+            return default
+        if isinstance(curr, dict):
+            curr = curr.get(key, default)
+        elif isinstance(curr, (list, tuple)) and key.isdigit():
+            idx = int(key)
+            curr = curr[idx] if 0 <= idx < len(curr) else default
+        elif hasattr(curr, key):
+            curr = getattr(curr, key, default)
+        else:
+            return default
+    return curr
 
 
-def compose(*funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """Compose multiple functions right-to-left into a single function.
-
-    Args:
-        *funcs: Functions to compose together.
-
-    Returns:
-        A new function representing the composed operations.
-    """
-    return reduce(lambda f, g: lambda x: f(g(x)), funcs, lambda x: x)
+def chunkify(iterable: Iterable[Any], size: int) -> Iterator[Tuple[Any, ...]]:
+    """Yield n-sized chunks lazily using an iterative sentinel pattern."""
+    if size < 1:
+        raise ValueError("Chunk size must be at least 1")
+    iterator = iter(iterable)
+    return iter(lambda: tuple(islice(iterator, size)), ())
 
 
-def tap(action: Callable[[T], None]) -> Callable[[T], T]:
-    """Create a side-effect function that inspects a value and returns it.
+def flatten(container: Iterable[Any]) -> Iterator[Any]:
+    """Recursively flatten arbitrarily nested iterables excluding text/bytes."""
+    for item in container:
+        if isinstance(item, (list, tuple, set)) and not isinstance(item, (str, bytes)):
+            yield from flatten(item)
+        else:
+            yield item
 
-    Args:
-        action: A callable invoked with the current item for side effects.
 
-    Returns:
-        A function that executes the action and returns the input unaltered.
-    """
-    def _inspector(val: T) -> T:
-        action(val)
-        return val
-    return _inspector
+def coalesce(*args: Any, predicate: Optional[Callable[[Any], bool]] = None) -> Any:
+    """Return first argument satisfying predicate (defaults to non-None)."""
+    check = predicate or (lambda x: x is not None)
+    return next((arg for arg in args if check(arg)), None)
+
+
+def pipe(value: Any, *funcs: Callable[[Any], Any]) -> Any:
+    """Pass an initial value sequentially through transformation pipeline."""
+    return reduce(lambda acc, fn: fn(acc), funcs, value)
