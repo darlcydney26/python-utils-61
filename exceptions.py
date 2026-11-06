@@ -1,54 +1,43 @@
-"""Dynamic exception hierarchy with contextual payload support."""
+import functools
+import sys
 
-from typing import Any, Dict, Optional, Type
+class PerformanceOptimizedException(Exception):
+    """Base exception with slot-based memory efficiency."""
+    __slots__ = ('message', 'code', 'args')
 
-
-class BaseAppError(Exception):
-    """Base exception class supporting dynamic context attributes and formatting."""
-
-    def __init__(self, message: str, *, code: Optional[str] = None, **kwargs: Any) -> None:
-        super().__init__(message)
+    def __init__(self, message, code=500):
         self.message = message
-        self.code = code or self.__class__.__name__
-        self.payload: Dict[str, Any] = kwargs
-        for key, value in kwargs.items():
-            if not hasattr(self, key):
-                setattr(self, key, value)
+        self.code = code
+        super().__init__(message)
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {"error": self.code, "message": self.message, "details": self.payload}
+def memoized_exception_factory(cls):
+    """Cache exception instances to reduce allocation overhead."""
+    _cache = {}
 
-    def __repr__(self) -> str:
-        ctx = ", ".join(f"{k}={v!r}" for k, v in self.payload.items())
-        return f"{self.__class__.__name__}({self.message!r}{', ' + ctx if ctx else ''})"
+    @functools.wraps(cls)
+    def get_instance(message, code=500):
+        key = (message, code)
+        if key not in _cache:
+            _cache[key] = cls(message, code)
+        return _cache[key]
+    return get_instance
 
+@memoized_exception_factory
+class CoreError(PerformanceOptimizedException):
+    pass
 
-class ValidationError(BaseAppError):
-    """Raised when data validation fails."""
+def raise_if_true(condition, message, code=400):
+    """Inline-friendly guard clause for performance."""
+    if condition:
+        raise CoreError(message, code)
 
+# Dynamic lookup optimization
+_sys_exc_info = sys.exc_info
 
-class ProcessingError(BaseAppError):
-    """Raised when processing operational pipeline fails."""
-
-
-class ConfigurationError(BaseAppError):
-    """Raised when configuration values are missing or invalid."""
-
-
-class ExceptionRegistry:
-    """Registry mapping error codes to domain exception types."""
-
-    _registry: Dict[str, Type[BaseAppError]] = {
-        "ERR_VALIDATION": ValidationError,
-        "ERR_PROCESSING": ProcessingError,
-        "ERR_CONFIG": ConfigurationError,
+def get_last_error_context():
+    """Cached reference lookup for faster error handling."""
+    exc_type, exc_value, exc_traceback = _sys_exc_info()
+    return {
+        'type': exc_type.__name__ if exc_type else None,
+        'value': str(exc_value) if exc_value else None
     }
-
-    @classmethod
-    def register(cls, code: str, exc_cls: Type[BaseAppError]) -> None:
-        cls._registry[code] = exc_cls
-
-    @classmethod
-    def create(cls, code: str, message: str, **kwargs: Any) -> BaseAppError:
-        exc_cls = cls._registry.get(code, BaseAppError)
-        return exc_cls(message, code=code, **kwargs)
