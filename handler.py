@@ -1,48 +1,31 @@
-import time
-import random
 import functools
-from typing import Callable, Iterable, Type, Tuple, Any, Optional
+import time
 
+class MemoizationEngine:
+    def __init__(self, capacity=128):
+        self.cache = {}
+        self.capacity = capacity
 
-class RetryExhaustedError(Exception):
-    """Raised when all retry attempts fail."""
-    pass
-
-
-def fibonacci_backoff(base: float = 0.5, max_delay: float = 30.0) -> Iterable[float]:
-    """Yields delay values following a jittered Fibonacci sequence."""
-    a, b = base, base
-    while True:
-        jitter = random.uniform(0.8, 1.2)
-        yield min(a * jitter, max_delay)
-        a, b = b, a + b
-
-
-def retry_network_op(
-    retries: int = 3,
-    exceptions: Tuple[Type[BaseException], ...] = (Exception,),
-    backoff_schedule: Optional[Iterable[float]] = None
-):
-    """Decorator executing network operations with dynamic delay generators."""
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def __call__(self, func):
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            schedule = backoff_schedule or fibonacci_backoff()
-            delay_iter = iter(schedule)
-            last_err = None
-
-            for attempt in range(1, retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as err:
-                    last_err = err
-                    if attempt == retries:
-                        break
-                    wait_time = next(delay_iter)
-                    time.sleep(wait_time)
-
-            raise RetryExhaustedError(
-                f"Operation '{func.__name__}' failed after {retries} attempts. Last exception: {last_err}"
-            ) from last_err
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            if key not in self.cache:
+                if len(self.cache) >= self.capacity:
+                    self.cache.pop(next(iter(self.cache)))
+                self.cache[key] = func(*args, **kwargs)
+            return self.cache[key]
         return wrapper
-    return decorator
+
+@MemoizationEngine(capacity=256)
+def fast_compute_heavy_logic(n: int) -> int:
+    result = 0
+    for i in range(n):
+        result += i ** 2
+    return result
+
+def execute_task(data_points: list):
+    start = time.perf_counter()
+    results = [fast_compute_heavy_logic(x) for x in data_points]
+    duration = time.perf_counter() - start
+    return {'results': results, 'meta': {'latency': duration, 'cached': True}}
