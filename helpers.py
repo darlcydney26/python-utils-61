@@ -1,43 +1,61 @@
-from typing import Any, Callable, Union
+import inspect
+from typing import Any, Callable, Generator, Iterable, Dict, List
 
-class DataNavigator:
-    """Fluid wrapper for navigating and mutating arbitrary nested structures."""
 
-    def __init__(self, data: Any) -> None:
-        self._data = data
+class ValidationError(ValueError):
+    """Raised when input fails validation rules."""
+    pass
+
+
+def _is_truthy_rule(rule: Callable[[Any], bool], value: Any) -> bool:
+    sig = inspect.signature(rule)
+    if len(sig.parameters) == 1:
+        return bool(rule(value))
+    return bool(rule(value, key=None))
+
+
+class LoopValidator:
+    """Creative processing loop with built-in pipeline input validation."""
+
+    def __init__(self, *rules: Callable[[Any], bool]):
+        self._rules = rules
+        self._rejected_count = 0
+
+    def enforce(self, raw_stream: Iterable[Any]) -> Generator[Any, None, None]:
+        """Process loop iterating over stream while enforcing validation rules."""
+        for item in raw_stream:
+            failures = []
+            for rule_idx, rule in enumerate(self._rules):
+                try:
+                    if not _is_truthy_rule(rule, item):
+                        rule_name = getattr(rule, "__name__", f"rule_{rule_idx}")
+                        failures.append(rule_name)
+                except Exception as err:
+                    failures.append(f"err:{type(err).__name__}")
+
+            if failures:
+                self._rejected_count += 1
+                continue
+
+            yield item
 
     @property
-    def value(self) -> Any:
-        return self._data
-
-    def __rshift__(self, target: Union[str, Callable[[Any], Any]]) -> "DataNavigator":
-        if callable(target):
-            return DataNavigator(target(self._data))
-        return DataNavigator(self._resolve_path(self._data, str(target)))
-
-    def _resolve_path(self, obj: Any, path: str) -> Any:
-        for key in path.split("."):
-            if not key or obj is None:
-                continue
-            if isinstance(obj, dict):
-                obj = obj.get(key)
-            elif isinstance(obj, (list, tuple)) and key.isdigit():
-                idx = int(key)
-                obj = obj[idx] if -len(obj) <= idx < len(obj) else None
-            else:
-                obj = getattr(obj, key, None)
-        return obj
-
-    def apply(self, func: Callable[[Any], Any]) -> "DataNavigator":
-        return DataNavigator(func(self._data))
-
-    def unwrap(self, fallback: Any = None) -> Any:
-        return fallback if self._data is None else self._data
+    def rejected_count(self) -> int:
+        return self._rejected_count
 
 
-def fluent_query(data: Any, *steps: Union[str, Callable[[Any], Any]], default: Any = None) -> Any:
-    """Queries complex data structures using mixed dot-paths and transform functions."""
-    nav = DataNavigator(data)
-    for step in steps:
-        nav = nav >> step
-    return nav.unwrap(default)
+def sanitize_and_process(
+    inputs: List[Any], schema: Dict[str, type]
+) -> List[Dict[str, Any]]:
+    """Main processing loop validating structured dynamic dictionaries."""
+    validator = LoopValidator(
+        lambda x: isinstance(x, dict),
+        lambda x: all(k in x for k in schema.keys()),
+        lambda x: all(isinstance(x[k], schema[k]) for k in schema.keys() if k in x),
+    )
+
+    processed = []
+    for valid_item in validator.enforce(inputs):
+        processed.append({k: valid_item[k] for k in schema})
+
+    return processed
