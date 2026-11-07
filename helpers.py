@@ -1,61 +1,37 @@
-import inspect
-from typing import Any, Callable, Generator, Iterable, Dict, List
+import json
+import os
+from typing import Any, Dict
 
+class ConfigLoader:
+    def __init__(self, defaults: Dict[str, Any] = None):
+        self._config = defaults or {}
 
-class ValidationError(ValueError):
-    """Raised when input fails validation rules."""
-    pass
-
-
-def _is_truthy_rule(rule: Callable[[Any], bool], value: Any) -> bool:
-    sig = inspect.signature(rule)
-    if len(sig.parameters) == 1:
-        return bool(rule(value))
-    return bool(rule(value, key=None))
-
-
-class LoopValidator:
-    """Creative processing loop with built-in pipeline input validation."""
-
-    def __init__(self, *rules: Callable[[Any], bool]):
-        self._rules = rules
-        self._rejected_count = 0
-
-    def enforce(self, raw_stream: Iterable[Any]) -> Generator[Any, None, None]:
-        """Process loop iterating over stream while enforcing validation rules."""
-        for item in raw_stream:
-            failures = []
-            for rule_idx, rule in enumerate(self._rules):
+    def load(self, path: str) -> 'ConfigLoader':
+        if os.path.exists(path):
+            with open(path, 'r') as f:
                 try:
-                    if not _is_truthy_rule(rule, item):
-                        rule_name = getattr(rule, "__name__", f"rule_{rule_idx}")
-                        failures.append(rule_name)
-                except Exception as err:
-                    failures.append(f"err:{type(err).__name__}")
+                    user_config = json.load(f)
+                    self._config.update(user_config)
+                except json.JSONDecodeError:
+                    pass
+        return self
 
-            if failures:
-                self._rejected_count += 1
-                continue
+    def __getitem__(self, key: str) -> Any:
+        return self._config.get(key)
 
-            yield item
+    def __getattr__(self, key: str) -> Any:
+        if key in self._config:
+            return self._config[key]
+        raise AttributeError(f'No config key found: {key}')
 
-    @property
-    def rejected_count(self) -> int:
-        return self._rejected_count
+    def __repr__(self) -> str:
+        return f'<ConfigLoader keys={list(self._config.keys())}>'
 
-
-def sanitize_and_process(
-    inputs: List[Any], schema: Dict[str, type]
-) -> List[Dict[str, Any]]:
-    """Main processing loop validating structured dynamic dictionaries."""
-    validator = LoopValidator(
-        lambda x: isinstance(x, dict),
-        lambda x: all(k in x for k in schema.keys()),
-        lambda x: all(isinstance(x[k], schema[k]) for k in schema.keys() if k in x),
-    )
-
-    processed = []
-    for valid_item in validator.enforce(inputs):
-        processed.append({k: valid_item[k] for k in schema})
-
-    return processed
+    @classmethod
+    def from_env(cls, prefix: str, defaults: Dict[str, Any] = None) -> 'ConfigLoader':
+        loader = cls(defaults)
+        for key, value in os.environ.items():
+            if key.startswith(prefix):
+                clean_key = key[len(prefix):].lower()
+                loader._config[clean_key] = value
+        return loader
