@@ -1,54 +1,40 @@
-import random
-import time
-from functools import wraps
-from typing import Any, Callable, Iterable, Optional, Tuple, Type
+import functools
+from typing import Any, Callable, TypeVar, Dict
 
+T = TypeVar('T')
 
-class NetworkRetryError(Exception):
-    """Raised when all retry attempts fail."""
+class DataMunger:
+    """An unconventional approach to recursive data manipulation."""
+    def __init__(self, data: Any):
+        self._data = data
 
-    def __init__(self, last_exception: Exception, attempts: int):
-        self.last_exception = last_exception
-        self.attempts = attempts
-        super().__init__(
-            f"Operation failed after {attempts} attempts. Last error: {last_exception}"
-        )
+    def morph(self, func: Callable[[Any], Any]) -> 'DataMunger':
+        if isinstance(self._data, dict):
+            self._data = {k: self._walk(v, func) for k, v in self._data.items()}
+        elif isinstance(self._data, list):
+            self._data = [self._walk(v, func) for v in self._data]
+        else:
+            self._data = func(self._data)
+        return self
 
+    def _walk(self, val: Any, func: Callable) -> Any:
+        if isinstance(val, dict):
+            return {k: self._walk(v, func) for k, v in val.items()}
+        if isinstance(val, list):
+            return [self._walk(v, func) for v in val]
+        return func(val)
 
-def fibonacci_backoff(base: float = 0.5, max_delay: float = 30.0) -> Iterable[float]:
-    """Yields fibonacci backoff intervals with randomized jitter."""
-    a, b = base, base
-    while True:
-        jitter = random.uniform(0.8, 1.2)
-        yield min(a * jitter, max_delay)
-        a, b = b, a + b
+    def reveal(self) -> Any:
+        return self._data
 
-
-def resilient_call(
-    retry_on: Tuple[Type[Exception], ...] = (Exception,),
-    max_attempts: int = 5,
-    backoff_gen: Optional[Callable[[], Iterable[float]]] = None,
-) -> Callable:
-    """Decorator applying dynamic backoff retry schedules to network-bound functions."""
-
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            delays = (backoff_gen or fibonacci_backoff)()
-            delay_iter = iter(delays)
-            last_err = None
-
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    return func(*args, **kwargs)
-                except retry_on as err:
-                    last_err = err
-                    if attempt == max_attempts:
-                        break
-                    time.sleep(next(delay_iter))
-
-            raise NetworkRetryError(last_err, max_attempts)
-
+def flexible_processor(transform_map: Dict[type, Callable]) -> Callable:
+    """Higher-order function for type-specific data transformation."""
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+            if type(result) in transform_map:
+                return transform_map[type(result)](result)
+            return result
         return wrapper
-
     return decorator
