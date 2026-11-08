@@ -1,39 +1,34 @@
-import time
 import functools
-import random
-from typing import Callable, Any, Type
+from typing import Any, Callable, Dict, Union
 
-def retry_network_op(retries: int = 3, backoff: float = 0.5, exceptions: tuple = (Exception,)):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            last_ex = None
-            for attempt in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except exceptions as e:
-                    last_ex = e
-                    sleep_time = backoff * (2 ** attempt) + random.uniform(0, 0.1)
-                    time.sleep(sleep_time)
-            raise last_ex
-        return wrapper
-    return decorator
+class DataPipe:
+    """An unconventional pipeline for chaining data transformations."""
+    def __init__(self, value: Any):
+        self.value = value
 
-class NetworkHandler:
-    def __init__(self, target_url: str):
-        self.target_url = target_url
+    def __or__(self, func: Callable) -> 'DataPipe':
+        return DataPipe(func(self.value))
 
-    @retry_network_op(retries=3, backoff=1.0, exceptions=(ConnectionError, TimeoutError))
-    def fetch_data(self) -> str:
-        # Simulate unstable network condition
-        if random.random() < 0.7:
-            raise ConnectionError(f"Failed to reach {self.target_url}")
-        return "success payload"
+    def __repr__(self):
+        return f"DataPipe({self.value})"
 
-# Usage Example:
-if __name__ == "__main__":
-    handler = NetworkHandler("https://api.example.com")
-    try:
-        print(handler.fetch_data())
-    except ConnectionError:
-        print("Final failure after retries")
+def transform_dict(data: Dict[str, Any], key_map: Dict[str, str]) -> Dict[str, Any]:
+    """Maps dict keys using a provided translation schema."""
+    return {key_map.get(k, k): v for k, v in data.items()}
+
+def sanitize_input(val: Union[str, int]) -> str:
+    """Force cast to lowercase string and strip whitespace."""
+    return str(val).lower().strip()
+
+def batch_process(items: list, transformer: Callable) -> list:
+    """Functional processing wrapper for iterables."""
+    return list(map(transformer, items))
+
+def registry_factory():
+    """Closure-based state storage for handling data."""
+    storage = {}
+    def register(key: str, val: Any):
+        storage[key] = val
+    def get_all():
+        return storage
+    return register, get_all
