@@ -1,34 +1,50 @@
 import functools
-from typing import Any, Callable, Dict, Union
+import time
+import logging
+from typing import Callable, Any, Dict
 
-class DataPipe:
-    """An unconventional pipeline for chaining data transformations."""
-    def __init__(self, value: Any):
-        self.value = value
+def memoize_with_expiry(ttl: int = 60):
+    def decorator(func: Callable):
+        cache: Dict[tuple, tuple] = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.time()
+            if key in cache:
+                val, timestamp = cache[key]
+                if now - timestamp < ttl:
+                    return val
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
+        return wrapper
+    return decorator
 
-    def __or__(self, func: Callable) -> 'DataPipe':
-        return DataPipe(func(self.value))
+def retry_operation(attempts: int = 3, delay: float = 0.1):
+    def decorator(func: Callable):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_ex = None
+            for _ in range(attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_ex = e
+                    time.sleep(delay)
+            raise last_ex
+        return wrapper
+    return decorator
 
-    def __repr__(self):
-        return f"DataPipe({self.value})"
+def pipe(data: Any, *funcs: Callable):
+    return functools.reduce(lambda v, f: f(v), funcs, data)
 
-def transform_dict(data: Dict[str, Any], key_map: Dict[str, str]) -> Dict[str, Any]:
-    """Maps dict keys using a provided translation schema."""
-    return {key_map.get(k, k): v for k, v in data.items()}
+class DataPipeline:
+    def __init__(self, initial_data: Any):
+        self.data = initial_data
+    
+    def process(self, *funcs: Callable):
+        self.data = pipe(self.data, *funcs)
+        return self
 
-def sanitize_input(val: Union[str, int]) -> str:
-    """Force cast to lowercase string and strip whitespace."""
-    return str(val).lower().strip()
-
-def batch_process(items: list, transformer: Callable) -> list:
-    """Functional processing wrapper for iterables."""
-    return list(map(transformer, items))
-
-def registry_factory():
-    """Closure-based state storage for handling data."""
-    storage = {}
-    def register(key: str, val: Any):
-        storage[key] = val
-    def get_all():
-        return storage
-    return register, get_all
+    def get(self):
+        return self.data
