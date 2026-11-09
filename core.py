@@ -1,40 +1,44 @@
-import functools
-from typing import Any, Callable, TypeVar, Dict
+from typing import Any, Callable, Dict, Generator, List, Tuple
 
-T = TypeVar('T')
 
-class DataMunger:
-    """An unconventional approach to recursive data manipulation."""
-    def __init__(self, data: Any):
-        self._data = data
+class CoreProcessor:
+    """Main processing engine featuring predicate-driven validation gates."""
 
-    def morph(self, func: Callable[[Any], Any]) -> 'DataMunger':
-        if isinstance(self._data, dict):
-            self._data = {k: self._walk(v, func) for k, v in self._data.items()}
-        elif isinstance(self._data, list):
-            self._data = [self._walk(v, func) for v in self._data]
-        else:
-            self._data = func(self._data)
-        return self
+    def __init__(self, validators: Dict[str, Callable[[Any], bool]] | None = None) -> None:
+        self.validators = validators or {
+            "type_check": lambda x: isinstance(x, (str, int, float, dict, list)),
+            "string_sanitize": lambda x: not isinstance(x, str) or len(x.strip()) > 0,
+            "numeric_range": lambda x: not isinstance(x, (int, float)) or (-1000 <= x <= 1000),
+        }
 
-    def _walk(self, val: Any, func: Callable) -> Any:
-        if isinstance(val, dict):
-            return {k: self._walk(v, func) for k, v in val.items()}
-        if isinstance(val, list):
-            return [self._walk(v, func) for v in val]
-        return func(val)
+    def _apply_validators(self, idx: int, item: Any) -> Tuple[bool, str]:
+        for rule_name, validator in self.validators.items():
+            try:
+                if not validator(item):
+                    return False, f"Rule violation at index {idx}: {rule_name}"
+            except Exception as err:
+                return False, f"Validation exception at index {idx} ({rule_name}): {err}"
+        return True, "valid"
 
-    def reveal(self) -> Any:
-        return self._data
+    def process_batch(self, batch: List[Any]) -> Generator[Dict[str, Any], None, None]:
+        """Main loop enforcing inline input validation before stream consumption."""
+        for idx, item in enumerate(batch):
+            valid, reason = self._apply_validators(idx, item)
+            if not valid:
+                yield {"index": idx, "status": "rejected", "reason": reason, "result": None}
+                continue
 
-def flexible_processor(transform_map: Dict[type, Callable]) -> Callable:
-    """Higher-order function for type-specific data transformation."""
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-            if type(result) in transform_map:
-                return transform_map[type(result)](result)
-            return result
-        return wrapper
-    return decorator
+            processed = item.upper() if isinstance(item, str) else item
+            yield {
+                "index": idx,
+                "status": "success",
+                "reason": "valid",
+                "result": processed,
+            }
+
+
+if __name__ == "__main__":
+    sample_data = ["hello", "", 42, 99999, {"key": "val"}, None]
+    engine = CoreProcessor()
+    results = list(engine.process_batch(sample_data))
+    print(f"Processed {len(results)} items through loop.")
