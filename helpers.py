@@ -1,55 +1,53 @@
+from typing import Any, Callable, List, Tuple, Union
 import functools
-from typing import Any, Callable, Dict, List
 
 
 class Pipe:
-    """Lightweight wrapper enabling pipeable function execution via bitwise OR (|)."""
+    """A pipeline utility wrapping data for chained function execution via bitwise operators."""
 
-    def __init__(self, func: Callable[..., Any]):
-        self.func = func
-        functools.update_wrapper(self, func)
+    def __init__(self, value: Any) -> None:
+        self.value = value
 
-    def __ror__(self, other: Any) -> Any:
-        if isinstance(other, tuple):
-            return self.func(*other)
-        return self.func(other)
+    def __rshift__(self, func: Callable[..., Any]) -> "Pipe":
+        """Overloads >> operator to pass current value into a single-arg function."""
+        return Pipe(func(self.value))
 
-    def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        return self.func(*args, **kwargs)
+    def __or__(self, target: Union[Callable[..., Any], Tuple[Callable[..., Any], Any]]) -> "Pipe":
+        """Overloads | operator to allow functions with positional arguments."""
+        if isinstance(target, tuple):
+            func, *args = target
+            return Pipe(func(self.value, *args))
+        return Pipe(target(self.value))
 
-
-@Pipe
-def flatten_dict(data: Dict[str, Any], prefix: str = "", sep: str = ".") -> Dict[str, Any]:
-    """Recursively flattens a nested dictionary using key separator."""
-    items: List[tuple] = []
-    for key, value in data.items():
-        new_key = f"{prefix}{sep}{key}" if prefix else str(key)
-        if isinstance(value, dict):
-            items.extend(flatten_dict(value, prefix=new_key, sep=sep).items())
-        else:
-            items.append((new_key, value))
-    return dict(items)
+    def unwrap(self) -> Any:
+        """Extract the inner transformed value."""
+        return self.value
 
 
-@Pipe
-def chunk_iterable(args: tuple) -> List[List[Any]]:
-    """Splits an iterable into fixed-size chunks. Expects (iterable, size)."""
-    iterable, chunk_size = args
-    lst = list(iterable)
-    return [lst[i : i + chunk_size] for i in range(0, len(lst), chunk_size)]
+def safe_get(data: Any, path: str, default: Any = None) -> Any:
+    """Safely query nested dictionaries or lists using dot notation (e.g. 'users.0.name')."""
+    try:
+        for key in path.split("."):
+            if isinstance(data, list) and key.isdigit():
+                data = data[int(key)]
+            elif isinstance(data, dict):
+                data = data[key]
+            elif hasattr(data, key):
+                data = getattr(data, key)
+            else:
+                return default
+        return data
+    except (IndexError, KeyError, TypeError, AttributeError):
+        return default
 
 
-def coalesce(*args: Any, default: Any = None) -> Any:
-    """Returns the first non-None argument or the specified default."""
-    return next((arg for arg in args if arg is not None), default)
-
-
-def safe_dig(container: Any, *keys: Any, default: Any = None) -> Any:
-    """Safely retrieves a value nested deep within structures without exceptions."""
-    current = container
-    for key in keys:
-        try:
-            current = current[key]
-        except (KeyError, IndexError, TypeError):
-            return default
-    return current
+def auto_batch(size: int) -> Callable:
+    """Decorator that splits iterable inputs into fixed chunks before batch processing."""
+    def decorator(func: Callable[[List[Any]], Any]) -> Callable:
+        @functools.wraps(func)
+        def wrapper(iterable: Any, *args: Any, **kwargs: Any) -> List[Any]:
+            items = list(iterable)
+            chunks = [items[i : i + size] for i in range(0, len(items), size)]
+            return [func(chunk, *args, **kwargs) for chunk in chunks]
+        return wrapper
+    return decorator
