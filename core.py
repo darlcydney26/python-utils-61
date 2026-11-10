@@ -1,42 +1,41 @@
-import functools
-import time
 import collections
-from typing import Callable, Any
+import functools
+from typing import Any, Callable, Dict, List, Union
 
-def memoize_with_expiry(ttl: int = 300):
-    def decorator(func: Callable):
-        cache = {}
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (args, frozenset(kwargs.items()))
-            now = time.time()
-            if key in cache:
-                val, timestamp = cache[key]
-                if now - timestamp < ttl:
-                    return val
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
-        return wrapper
-    return decorator
-
-def deep_flatten(items: list) -> list:
-    flat = []
-    for item in items:
-        if isinstance(item, collections.abc.Iterable) and not isinstance(item, (str, bytes)):
-            flat.extend(deep_flatten(item))
-        else:
-            flat.append(item)
-    return flat
-
-def pipe(data: Any, *funcs: Callable) -> Any:
-    return functools.reduce(lambda v, f: f(v), funcs, data)
-
-class AttributeDict(dict):
-    def __getattr__(self, key):
+def munge(data: Any, path: str, default: Any = None) -> Any:
+    """navigates nested structures with dot notation paths"""
+    parts = path.split('.')
+    for part in parts:
         try:
-            return self[key]
-        except KeyError:
-            raise AttributeError(f"Missing key: {key}")
-    def __setattr__(self, key, value):
-        self[key] = value
+            if isinstance(data, dict):
+                data = data.get(part)
+            elif isinstance(data, (list, tuple)):
+                data = data[int(part)]
+            else:
+                return default
+        except (KeyError, IndexError, ValueError, TypeError):
+            return default
+    return data if data is not None else default
+
+def pipeline(data: Any, *funcs: Callable) -> Any:
+    """functional composition for data transformation pipelines"""
+    return functools.reduce(lambda acc, f: f(acc), funcs, data)
+
+class DataProxy:
+    """dynamic attribute access for dictionary objects"""
+    def __init__(self, obj: Dict):
+        self.__dict__ = obj
+
+    def __repr__(self) -> str:
+        return f"DataProxy({self.__dict__})"
+
+def flatten(d: Dict, parent_key: str = '', sep: str = '_') -> Dict:
+    """recursive dictionary key flattening"""
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, collections.abc.MutableMapping):
+            items.extend(flatten(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
