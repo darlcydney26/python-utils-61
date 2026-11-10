@@ -1,44 +1,42 @@
-from typing import Any, Callable, Dict, Generator, List, Tuple
+import functools
+import time
+import collections
+from typing import Callable, Any
 
+def memoize_with_expiry(ttl: int = 300):
+    def decorator(func: Callable):
+        cache = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, frozenset(kwargs.items()))
+            now = time.time()
+            if key in cache:
+                val, timestamp = cache[key]
+                if now - timestamp < ttl:
+                    return val
+            result = func(*args, **kwargs)
+            cache[key] = (result, now)
+            return result
+        return wrapper
+    return decorator
 
-class CoreProcessor:
-    """Main processing engine featuring predicate-driven validation gates."""
+def deep_flatten(items: list) -> list:
+    flat = []
+    for item in items:
+        if isinstance(item, collections.abc.Iterable) and not isinstance(item, (str, bytes)):
+            flat.extend(deep_flatten(item))
+        else:
+            flat.append(item)
+    return flat
 
-    def __init__(self, validators: Dict[str, Callable[[Any], bool]] | None = None) -> None:
-        self.validators = validators or {
-            "type_check": lambda x: isinstance(x, (str, int, float, dict, list)),
-            "string_sanitize": lambda x: not isinstance(x, str) or len(x.strip()) > 0,
-            "numeric_range": lambda x: not isinstance(x, (int, float)) or (-1000 <= x <= 1000),
-        }
+def pipe(data: Any, *funcs: Callable) -> Any:
+    return functools.reduce(lambda v, f: f(v), funcs, data)
 
-    def _apply_validators(self, idx: int, item: Any) -> Tuple[bool, str]:
-        for rule_name, validator in self.validators.items():
-            try:
-                if not validator(item):
-                    return False, f"Rule violation at index {idx}: {rule_name}"
-            except Exception as err:
-                return False, f"Validation exception at index {idx} ({rule_name}): {err}"
-        return True, "valid"
-
-    def process_batch(self, batch: List[Any]) -> Generator[Dict[str, Any], None, None]:
-        """Main loop enforcing inline input validation before stream consumption."""
-        for idx, item in enumerate(batch):
-            valid, reason = self._apply_validators(idx, item)
-            if not valid:
-                yield {"index": idx, "status": "rejected", "reason": reason, "result": None}
-                continue
-
-            processed = item.upper() if isinstance(item, str) else item
-            yield {
-                "index": idx,
-                "status": "success",
-                "reason": "valid",
-                "result": processed,
-            }
-
-
-if __name__ == "__main__":
-    sample_data = ["hello", "", 42, 99999, {"key": "val"}, None]
-    engine = CoreProcessor()
-    results = list(engine.process_batch(sample_data))
-    print(f"Processed {len(results)} items through loop.")
+class AttributeDict(dict):
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(f"Missing key: {key}")
+    def __setattr__(self, key, value):
+        self[key] = value
