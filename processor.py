@@ -1,26 +1,36 @@
-import logging
+import time
+import functools
+import random
 
-def validate_payload(data):
-    """Curried validation logic using functional dispatch."""
-    schema = {'id': int, 'payload': str}
-    checks = [lambda d: isinstance(d, dict), lambda d: all(isinstance(d.get(k), v) for k, v in schema.items())]
-    if not all(check(data) for check in checks):
-        raise ValueError(f"Invalid data structure: {data}")
-    return True
+def retry_network_call(max_retries=3, backoff_factor=0.5):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            attempts = 0
+            while attempts < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except (ConnectionError, TimeoutError) as e:
+                    attempts += 1
+                    if attempts >= max_retries:
+                        raise e
+                    sleep_time = backoff_factor * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
+                    time.sleep(sleep_time)
+        return wrapper
+    return decorator
 
-def main_processing_loop(data_stream):
-    """Process incoming data with strict validation guards."""
-    logger = logging.getLogger('processor')
-    for item in data_stream:
-        try:
-            if validate_payload(item):
-                result = item['payload'].strip().upper()
-                yield {'processed_id': item['id'], 'data': result}
-        except (ValueError, KeyError, TypeError) as e:
-            logger.error(f"Skipping malformed input: {e}")
-            continue
+class NetworkProcessor:
+    def __init__(self, endpoint):
+        self.endpoint = endpoint
+
+    @retry_network_call(max_retries=5)
+    def fetch_data(self, key):
+        # Simulate unstable network condition
+        if random.random() < 0.7:
+            raise ConnectionError(f"Failed to reach {self.endpoint}")
+        return {"status": "success", "payload": f"data_for_{key}"}
 
 if __name__ == "__main__":
-    raw_data = [{'id': 1, 'payload': 'hello'}, {'id': '2', 'payload': 'fail'}, {'id': 3, 'payload': 'world'}]
-    for output in main_processing_loop(raw_data):
-        print(f"Success: {output}")
+    proc = NetworkProcessor("https://api.example.com")
+    result = proc.fetch_data("user_123")
+    print(result)
