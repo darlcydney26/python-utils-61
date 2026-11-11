@@ -1,36 +1,52 @@
-import time
-import functools
-import random
+import struct
+from typing import List, Generator
 
-def retry_network_call(max_retries=3, backoff_factor=0.5):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_retries:
-                try:
-                    return func(*args, **kwargs)
-                except (ConnectionError, TimeoutError) as e:
-                    attempts += 1
-                    if attempts >= max_retries:
-                        raise e
-                    sleep_time = backoff_factor * (2 ** (attempts - 1)) + random.uniform(0, 0.1)
-                    time.sleep(sleep_time)
-        return wrapper
-    return decorator
+class FastChunkProcessor:
+    """High-performance stream byte slice processor using zero-copy memoryviews."""
+    __slots__ = ('_buffer', '_view', '_header_fmt', '_header_size')
 
-class NetworkProcessor:
-    def __init__(self, endpoint):
-        self.endpoint = endpoint
+    def __init__(self, capacity: int = 65536, header_fmt: str = ">I"):
+        self._buffer = bytearray(capacity)
+        self._view = memoryview(self._buffer)
+        self._header_fmt = header_fmt
+        self._header_size = struct.calcsize(header_fmt)
 
-    @retry_network_call(max_retries=5)
-    def fetch_data(self, key):
-        # Simulate unstable network condition
-        if random.random() < 0.7:
-            raise ConnectionError(f"Failed to reach {self.endpoint}")
-        return {"status": "success", "payload": f"data_for_{key}"}
+    def pack_frames(self, payloads: List[bytes]) -> int:
+        """Packs multiple payload chunks directly into contiguous slab without re-allocation."""
+        offset = 0
+        fmt = self._header_fmt
+        hsize = self._header_size
+        buf = self._buffer
 
-if __name__ == "__main__":
-    proc = NetworkProcessor("https://api.example.com")
-    result = proc.fetch_data("user_123")
-    print(result)
+        for data in payloads:
+            dlen = len(data)
+            total = hsize + dlen
+            if offset + total > len(buf):
+                raise ValueError("Slab capacity exceeded during batch pack")
+            
+            struct.pack_into(fmt, buf, offset, dlen)
+            buf[offset + hsize : offset + total] = data
+            offset += total
+
+        return offset
+
+    def unpack_stream(self, total_bytes: int) -> Generator[memoryview, None, None]:
+        """Zero-copy unpack yielding slice views directly from the active slab buffer."""
+        offset = 0
+        view = self._view
+        fmt = self._header_fmt
+        hsize = self._header_size
+
+        while offset < total_bytes:
+            dlen = struct.unpack_from(fmt, view, offset)[0]
+            start = offset + hsize
+            end = start + dlen
+            yield view[start:end]
+            offset = end
+
+    def process_and_sum_hash(self, total_bytes: int) -> int:
+        """Fast accumulative xor checksum directly across memory views."""
+        checksum = 0
+        for chunk in self.unpack_stream(total_bytes):
+            checksum ^= sum(chunk)
+        return checksum
