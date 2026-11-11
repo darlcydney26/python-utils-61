@@ -1,53 +1,58 @@
-from typing import Any, Callable, List, Tuple, Union
 import functools
+from typing import Callable, Any, Dict, List, Tuple
 
 
-class Pipe:
-    """A pipeline utility wrapping data for chained function execution via bitwise operators."""
+class HelperRegistry(type):
+    """Metaclass for automatic registration and chaining of helper functions."""
 
-    def __init__(self, value: Any) -> None:
-        self.value = value
+    _helpers: Dict[str, Callable] = {}
 
-    def __rshift__(self, func: Callable[..., Any]) -> "Pipe":
-        """Overloads >> operator to pass current value into a single-arg function."""
-        return Pipe(func(self.value))
+    def __new__(mcs, name, bases, namespace):
+        cls = super().__new__(mcs, name, bases, namespace)
+        for attr_name, attr_val in namespace.items():
+            if callable(attr_val) and not attr_name.startswith("_"):
+                mcs._helpers[attr_name] = attr_val
+        return cls
 
-    def __or__(self, target: Union[Callable[..., Any], Tuple[Callable[..., Any], Any]]) -> "Pipe":
-        """Overloads | operator to allow functions with positional arguments."""
-        if isinstance(target, tuple):
-            func, *args = target
-            return Pipe(func(self.value, *args))
-        return Pipe(target(self.value))
+    @classmethod
+    def get_pipeline(cls, *names: str) -> Callable:
+        funcs = [cls._helpers[n] for n in names if n in cls._helpers]
 
-    def unwrap(self) -> Any:
-        """Extract the inner transformed value."""
-        return self.value
+        def runner(initial_val: Any) -> Any:
+            res = initial_val
+            for f in funcs:
+                res = f(res)
+            return res
+
+        return runner
 
 
-def safe_get(data: Any, path: str, default: Any = None) -> Any:
-    """Safely query nested dictionaries or lists using dot notation (e.g. 'users.0.name')."""
-    try:
-        for key in path.split("."):
-            if isinstance(data, list) and key.isdigit():
-                data = data[int(key)]
-            elif isinstance(data, dict):
-                data = data[key]
-            elif hasattr(data, key):
-                data = getattr(data, key)
-            else:
-                return default
+class CoreHelpers(metaclass=HelperRegistry):
+    """Collection of reusable data sanitization and transformation helpers."""
+
+    @staticmethod
+    def strip_whitespace(val: Any) -> Any:
+        return val.strip() if isinstance(val, str) else val
+
+    @staticmethod
+    def sanitize_keys(data: Any) -> Any:
+        if isinstance(data, dict):
+            return {str(k).lower().replace(" ", "_"): v for k, v in data.items()}
         return data
-    except (IndexError, KeyError, TypeError, AttributeError):
-        return default
+
+    @staticmethod
+    def flatten_nested(data: Any) -> Any:
+        if not isinstance(data, (list, tuple)):
+            return [data]
+        flat = []
+        for item in data:
+            if isinstance(item, (list, tuple)):
+                flat.extend(CoreHelpers.flatten_nested(item))
+            else:
+                flat.append(item)
+        return flat
 
 
-def auto_batch(size: int) -> Callable:
-    """Decorator that splits iterable inputs into fixed chunks before batch processing."""
-    def decorator(func: Callable[[List[Any]], Any]) -> Callable:
-        @functools.wraps(func)
-        def wrapper(iterable: Any, *args: Any, **kwargs: Any) -> List[Any]:
-            items = list(iterable)
-            chunks = [items[i : i + size] for i in range(0, len(items), size)]
-            return [func(chunk, *args, **kwargs) for chunk in chunks]
-        return wrapper
-    return decorator
+def create_chain(*steps: str) -> Callable[[Any], Any]:
+    """Utility wrapper to build dynamic helper transformation pipelines."""
+    return HelperRegistry.get_pipeline(*steps)
