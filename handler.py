@@ -1,50 +1,39 @@
 import functools
-import time
-import logging
-from typing import Callable, Any, Dict
+from typing import Any, Callable, Dict
 
-def memoize_with_expiry(ttl: int = 60):
-    def decorator(func: Callable):
-        cache: Dict[tuple, tuple] = {}
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            key = (args, tuple(sorted(kwargs.items())))
-            now = time.time()
-            if key in cache:
-                val, timestamp = cache[key]
-                if now - timestamp < ttl:
-                    return val
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
-        return wrapper
-    return decorator
+def recursive_transform(data: Any, func: Callable[[Any], Any]) -> Any:
+    """Recursively apply function to all non-container values."""
+    if isinstance(data, dict):
+        return {k: recursive_transform(v, func) for k, v in data.items()}
+    elif isinstance(data, (list, tuple)):
+        return type(data)(recursive_transform(v, func) for v in data)
+    return func(data)
 
-def retry_operation(attempts: int = 3, delay: float = 0.1):
-    def decorator(func: Callable):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            last_ex = None
-            for _ in range(attempts):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_ex = e
-                    time.sleep(delay)
-            raise last_ex
-        return wrapper
-    return decorator
+class DataPipe:
+    """Chainable data processing pipeline wrapper."""
+    def __init__(self, data: Any):
+        self.data = data
 
-def pipe(data: Any, *funcs: Callable):
-    return functools.reduce(lambda v, f: f(v), funcs, data)
-
-class DataPipeline:
-    def __init__(self, initial_data: Any):
-        self.data = initial_data
-    
-    def process(self, *funcs: Callable):
-        self.data = pipe(self.data, *funcs)
+    def pipe(self, *funcs: Callable) -> 'DataPipe':
+        for f in funcs:
+            self.data = f(self.data)
         return self
 
-    def get(self):
-        return self.data
+    def __repr__(self) -> str:
+        return f"DataPipe(data={repr(self.data)})"
+
+def sanitization_layer(data: Any) -> Dict:
+    """Flatten nested structures and strip whitespace."""
+    def _clean(val):
+        if isinstance(val, str):
+            return val.strip()
+        return val
+    
+    return recursive_transform(data, _clean)
+
+def pipeline_factory(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        return DataPipe(result)
+    return wrapper
