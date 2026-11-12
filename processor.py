@@ -1,52 +1,48 @@
-import struct
-from typing import List, Generator
+"""Stream transformation processor using overloaded pipeline operators."""
 
-class FastChunkProcessor:
-    """High-performance stream byte slice processor using zero-copy memoryviews."""
-    __slots__ = ('_buffer', '_view', '_header_fmt', '_header_size')
+from typing import TypeVar, Callable, Iterable, Generator, Generic, Union
 
-    def __init__(self, capacity: int = 65536, header_fmt: str = ">I"):
-        self._buffer = bytearray(capacity)
-        self._view = memoryview(self._buffer)
-        self._header_fmt = header_fmt
-        self._header_size = struct.calcsize(header_fmt)
+T = TypeVar("T")
+R = TypeVar("R")
+S = TypeVar("S")
 
-    def pack_frames(self, payloads: List[bytes]) -> int:
-        """Packs multiple payload chunks directly into contiguous slab without re-allocation."""
-        offset = 0
-        fmt = self._header_fmt
-        hsize = self._header_size
-        buf = self._buffer
 
-        for data in payloads:
-            dlen = len(data)
-            total = hsize + dlen
-            if offset + total > len(buf):
-                raise ValueError("Slab capacity exceeded during batch pack")
-            
-            struct.pack_into(fmt, buf, offset, dlen)
-            buf[offset + hsize : offset + total] = data
-            offset += total
+class Stage(Generic[T, R]):
+    """A single pipeline processing stage wrapping a transformation function."""
 
-        return offset
+    def __init__(self, func: Callable[[T], R]) -> None:
+        """Initialize the processing stage with a mapping callable."""
+        self._func: Callable[[T], R] = func
 
-    def unpack_stream(self, total_bytes: int) -> Generator[memoryview, None, None]:
-        """Zero-copy unpack yielding slice views directly from the active slab buffer."""
-        offset = 0
-        view = self._view
-        fmt = self._header_fmt
-        hsize = self._header_size
+    def __call__(self, item: T) -> R:
+        """Execute the stage transformation on a single input item."""
+        return self._func(item)
 
-        while offset < total_bytes:
-            dlen = struct.unpack_from(fmt, view, offset)[0]
-            start = offset + hsize
-            end = start + dlen
-            yield view[start:end]
-            offset = end
+    def __rshift__(self, next_stage: Union["Stage[R, S]", Callable[[R], S]]) -> "Stage[T, S]":
+        """Compose two stages using the bitwise right-shift operator (>>)."""
+        target: Stage[R, S] = next_stage if isinstance(next_stage, Stage) else Stage(next_stage)
+        return Stage(lambda item: target(self(item)))
 
-    def process_and_sum_hash(self, total_bytes: int) -> int:
-        """Fast accumulative xor checksum directly across memory views."""
-        checksum = 0
-        for chunk in self.unpack_stream(total_bytes):
-            checksum ^= sum(chunk)
-        return checksum
+
+class BatchProcessor(Generic[T, R]):
+    """Executes a pipeline stage lazily over an iterable data stream."""
+
+    def __init__(self, pipeline: Stage[T, R]) -> None:
+        """Initialize batch processor with a pre-configured pipeline."""
+        self.pipeline: Stage[T, R] = pipeline
+
+    def process(self, stream: Iterable[T]) -> Generator[R, None, None]:
+        """Process an iterable stream through the pipeline, yielding results.
+
+        Args:
+            stream: An iterable sequence of input elements.
+
+        Yields:
+            Transformed elements after passing through the pipeline.
+        """
+        for element in stream:
+            yield self.pipeline(element)
+
+    def drain(self, stream: Iterable[T]) -> list[R]:
+        """Consume the entire stream immediately and return results as a list."""
+        return list(self.process(stream))
