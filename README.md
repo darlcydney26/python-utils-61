@@ -1,44 +1,50 @@
 # python-utils-61
 
-A lightweight collection of robust, production-ready Python utilities designed to streamline common development tasks. This library focuses on performance and type safety to help you write cleaner code with less boilerplate.
+A comprehensive collection of production-ready Python utility functions designed to streamline daily development tasks. This library focuses on performance, type safety, and reducing boilerplate code in data processing and system operations.
 
 ## Features
 
-*   **Robust File Operations:** Simplified wrappers for directory traversal, recursive file deletion, and safe file writing.
-*   **Performance Decorators:** Built-in tools for easy execution timing and method memoization to optimize expensive computations.
-*   **Data Validation:** A set of lightweight helpers to validate environment variables and configuration dictionaries.
-*   **Concurrent Execution:** Simplified threading and multiprocessing abstractions for rapid task parallelization.
+*   **Robust File Operations**: Simplified wrappers for recursive directory traversal and atomic file writing with automated permission handling.
+*   **Time-Series Helpers**: Efficient conversion utilities for ISO-8601 formatting, timezone normalization, and execution latency tracking.
+*   **Data Transformation**: High-performance tools for deep-merging nested dictionaries and flattening complex JSON structures.
+*   **Safe Execution**: Thread-safe retry decorators with exponential backoff logic for handling transient network failures.
 
 ## Installation
 
-Install the package via pip:
+Install the package directly from PyPI using pip:
 
 ```bash
 pip install python-utils-61
 ```
 
-For development installations, clone the repository and run:
+For development installations including testing dependencies:
 
 ```bash
-git clone https://github.com/developer/python-utils-61.git
+git clone https://github.com/Developer/python-utils-61.git
 cd python-utils-61
-pip install -e .
+pip install -e .[dev]
 ```
 
 ## Usage
 
-Easily profile your functions using the `@time_execution` decorator to identify bottlenecks in your code:
+Below is an example of how to use the retry decorator to handle flaky network requests:
 
 ```python
-from pyutils.decorators import time_execution
+from pyutils_61.decorators import retry
 
-@time_execution
-def process_data(data):
-    # Simulate a heavy operation
-    return [x**2 for x in data]
+@retry(attempts=3, delay=2)
+def fetch_api_data(url):
+    # Logic prone to occasional connection timeouts
+    ...
 
-result = process_data(range(1000000))
-# Output: [INFO] Function 'process_data' took 0.045s to execute
+# Perform deep merge on nested configuration dictionaries
+from pyutils_61.data import deep_merge
+
+config_a = {"db": {"port": 5432}}
+config_b = {"db": {"host": "localhost"}}
+
+merged = deep_merge(config_a, config_b)
+# Result: {'db': {'port': 5432, 'host': 'localhost'}}
 ```
 
 ## License
