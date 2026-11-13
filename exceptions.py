@@ -1,43 +1,79 @@
-import functools
-import sys
+import inspect
+from typing import Any, Callable, Dict, Optional, Type
 
-class PerformanceOptimizedException(Exception):
-    """Base exception with slot-based memory efficiency."""
-    __slots__ = ('message', 'code', 'args')
 
-    def __init__(self, message, code=500):
-        self.message = message
-        self.code = code
+class EdgeCaseError(Exception):
+    """Raised when code encounters structural boundaries or unforeseen edge states."""
+
+    def __init__(
+        self,
+        message: str,
+        original_cause: Optional[BaseException] = None,
+        snapshot: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(message)
+        self.message = message
+        self.original_cause = original_cause
+        self.snapshot = snapshot or {}
 
-def memoized_exception_factory(cls):
-    """Cache exception instances to reduce allocation overhead."""
-    _cache = {}
+    def __str__(self) -> str:
+        cause_info = f" [Cause: {type(self.original_cause).__name__}({self.original_cause})]" if self.original_cause else ""
+        context_info = f" [State: {self.snapshot}]" if self.snapshot else ""
+        return f"<EdgeCaseError: {self.message}>{cause_info}{context_info}"
 
-    @functools.wraps(cls)
-    def get_instance(message, code=500):
-        key = (message, code)
-        if key not in _cache:
-            _cache[key] = cls(message, code)
-        return _cache[key]
-    return get_instance
 
-@memoized_exception_factory
-class CoreError(PerformanceOptimizedException):
-    pass
+class BoundaryGuard:
+    """Context manager and decorator converting primitive runtime exceptions into EdgeCaseError."""
 
-def raise_if_true(condition, message, code=400):
-    """Inline-friendly guard clause for performance."""
-    if condition:
-        raise CoreError(message, code)
+    TRAPPED_EXCEPTIONS: tuple[Type[BaseException], ...] = (
+        ZeroDivisionError,
+        OverflowError,
+        RecursionError,
+        IndexError,
+        KeyError,
+        ValueError,
+    )
 
-# Dynamic lookup optimization
-_sys_exc_info = sys.exc_info
+    def __init__(self, fallback: Any = None, suppress: bool = False):
+        self.fallback = fallback
+        self.suppress = suppress
 
-def get_last_error_context():
-    """Cached reference lookup for faster error handling."""
-    exc_type, exc_value, exc_traceback = _sys_exc_info()
-    return {
-        'type': exc_type.__name__ if exc_type else None,
-        'value': str(exc_value) if exc_value else None
-    }
+    def __enter__(self) -> "BoundaryGuard":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Any,
+    ) -> bool:
+        if exc_type is None:
+            return True
+
+        if issubclass(exc_type, self.TRAPPED_EXCEPTIONS):
+            frame = exc_tb.tb_frame if exc_tb else inspect.currentframe()
+            scope_dump = {
+                k: repr(v)[:40]
+                for k, v in (frame.f_locals.items() if frame else {})
+                if not k.startswith("_")
+            }
+            error = EdgeCaseError(
+                f"Edge case intercepted in '{frame.f_code.co_name if frame else 'unknown'}'",
+                original_cause=exc_val,
+                snapshot=scope_dump,
+            )
+            if self.suppress:
+                return True
+            raise error from exc_val
+        return False
+
+    def __call__(self, func: Callable) -> Callable:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                with self:
+                    return func(*args, **kwargs)
+            except EdgeCaseError:
+                if self.fallback is not None:
+                    return self.fallback
+                raise
+        return wrapper
