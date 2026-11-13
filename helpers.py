@@ -1,58 +1,45 @@
 import functools
-from typing import Callable, Any, Dict, List, Tuple
+import logging
+from typing import Callable, Any, Dict
 
+logger = logging.getLogger(__name__)
 
-class HelperRegistry(type):
-    """Metaclass for automatic registration and chaining of helper functions."""
-
-    _helpers: Dict[str, Callable] = {}
-
-    def __new__(mcs, name, bases, namespace):
-        cls = super().__new__(mcs, name, bases, namespace)
-        for attr_name, attr_val in namespace.items():
-            if callable(attr_val) and not attr_name.startswith("_"):
-                mcs._helpers[attr_name] = attr_val
-        return cls
+class Registry:
+    _storage: Dict[str, Any] = {}
 
     @classmethod
-    def get_pipeline(cls, *names: str) -> Callable:
-        funcs = [cls._helpers[n] for n in names if n in cls._helpers]
+    def register(cls, name: str):
+        def decorator(func: Callable):
+            cls._storage[name] = func
+            return func
+        return decorator
 
-        def runner(initial_val: Any) -> Any:
-            res = initial_val
-            for f in funcs:
-                res = f(res)
-            return res
+    @classmethod
+    def invoke(cls, name: str, *args, **kwargs):
+        if name not in cls._storage:
+            raise ValueError(f"No function registered as {name}")
+        return cls._storage[name](*args, **kwargs)
 
-        return runner
+def memoize_with_logging(func: Callable):
+    cache = {}
 
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        key = (args, frozenset(kwargs.items()))
+        if key not in cache:
+            logger.debug(f"Computing result for {func.__name__}")
+            cache[key] = func(*args, **kwargs)
+        return cache[key]
+    return wrapper
 
-class CoreHelpers(metaclass=HelperRegistry):
-    """Collection of reusable data sanitization and transformation helpers."""
+def batch_process(items: list, chunk_size: int = 10):
+    for i in range(0, len(items), chunk_size):
+        yield items[i:i + chunk_size]
 
-    @staticmethod
-    def strip_whitespace(val: Any) -> Any:
-        return val.strip() if isinstance(val, str) else val
-
-    @staticmethod
-    def sanitize_keys(data: Any) -> Any:
-        if isinstance(data, dict):
-            return {str(k).lower().replace(" ", "_"): v for k, v in data.items()}
-        return data
-
-    @staticmethod
-    def flatten_nested(data: Any) -> Any:
-        if not isinstance(data, (list, tuple)):
-            return [data]
-        flat = []
-        for item in data:
-            if isinstance(item, (list, tuple)):
-                flat.extend(CoreHelpers.flatten_nested(item))
-            else:
-                flat.append(item)
-        return flat
-
-
-def create_chain(*steps: str) -> Callable[[Any], Any]:
-    """Utility wrapper to build dynamic helper transformation pipelines."""
-    return HelperRegistry.get_pipeline(*steps)
+def smart_deep_get(data: dict, path: str, default: Any = None):
+    keys = path.split('.')
+    for key in keys:
+        if not isinstance(data, dict) or key not in data:
+            return default
+        data = data[key]
+    return data
