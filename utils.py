@@ -1,42 +1,51 @@
-import functools
 import time
-import weakref
+import functools
+import random
 
-def memoize_with_ttl(ttl_seconds=60):
+def exponential_backoff(max_retries=3, base_delay=1):
     def decorator(func):
-        cache = {}
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            key = (args, tuple(sorted(kwargs.items())))
-            now = time.monotonic()
-            if key in cache:
-                val, timestamp = cache[key]
-                if now - timestamp < ttl_seconds:
-                    return val
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
+            retries = 0
+            while retries < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    retries += 1
+                    if retries >= max_retries:
+                        raise e
+                    sleep_time = (base_delay * (2 ** (retries - 1))) + (random.uniform(0, 1))
+                    time.sleep(sleep_time)
+            return None
         return wrapper
     return decorator
 
-class FastProcessor:
-    def __init__(self):
-        self._buffer = []
+class NetworkCircuitBreaker:
+    def __init__(self, failure_threshold=3, recovery_timeout=30):
+        self.threshold = failure_threshold
+        self.timeout = recovery_timeout
+        self.failures = 0
+        self.last_failure_time = 0
+        self.state = 'CLOSED'
 
-    def batch_process(self, data, chunk_size=1000):
-        for i in range(0, len(data), chunk_size):
-            yield data[i:i + chunk_size]
-
-    @staticmethod
-    def optimized_sum(iterable):
-        # Use local variable access to speed up loop in CPython
-        total = 0
-        for item in iterable:
-            total += item
-        return total
-
-    def weak_registry(self, obj):
-        # Tracking objects without preventing garbage collection
-        registry = weakref.WeakSet()
-        registry.add(obj)
-        return registry
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if self.state == 'OPEN':
+                if time.time() - self.last_failure_time > self.timeout:
+                    self.state = 'HALF-OPEN'
+                else:
+                    raise Exception("circuit breaker is open")
+            
+            try:
+                result = func(*args, **kwargs)
+                self.failures = 0
+                self.state = 'CLOSED'
+                return result
+            except Exception as e:
+                self.failures += 1
+                self.last_failure_time = time.time()
+                if self.failures >= self.threshold:
+                    self.state = 'OPEN'
+                raise e
+        return wrapper
