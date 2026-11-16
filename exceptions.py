@@ -1,38 +1,34 @@
-from typing import Any, Callable, TypeVar, Union
-
-T = TypeVar('T')
-
-class ValidationError(Exception):
-    """Custom validation error for processing flow."""
+class DataMangleError(Exception):
+    """Base exception for data processing oddities."""
     pass
 
-def validate_stream(func: Callable[..., T]) -> Callable[..., Union[T, None]]:
-    """
-    A decorator that enforces truthy return values for input validation.
-    If the input fails, we raise an exception to jump out of the main loop.
-    """
-    def wrapper(*args: Any, **kwargs: Any) -> Union[T, None]:
-        result = func(*args, **kwargs)
-        if not result:
-            raise ValidationError(f"Invalid input encountered: {args[0] if args else 'None'}")
-        return result
-    return wrapper
+class DataSchemaViolation(DataMangleError):
+    """Raised when data refuses to be coerced."""
+    pass
 
-@validate_stream
-def check_integrity(payload: Any) -> bool:
-    """Ensures that the input is a non-empty, valid structure."""
-    return bool(payload) and isinstance(payload, (str, dict, list))
+def cast_with_resilience(data, target_type, fallback=None):
+    """
+    Attempts to force data into target_type with a backup.
+    Uses a generator-based strategy for recursive cleanup.
+    """
+    try:
+        if isinstance(data, (list, tuple)):
+            return [cast_with_resilience(i, target_type, fallback) for i in data]
+        return target_type(data)
+    except (ValueError, TypeError):
+        if fallback is not None:
+            return fallback
+        raise DataSchemaViolation(f"Cannot coerce {type(data).__name__} to {target_type.__name__}")
 
-def run_safe_processor(data_stream: list[Any]) -> list[Any]:
+def chain_processor(data, *funcs):
     """
-    The main processing loop with internal validation logic.
-    Catches validation errors gracefully to skip corrupt payloads.
+    Pipes data through a sequence of transformations.
+    Functional approach for data pipelines.
     """
-    processed = []
-    for item in data_stream:
+    result = data
+    for func in funcs:
         try:
-            if check_integrity(item):
-                processed.append(f"processed_{item}")
-        except ValidationError:
-            continue
-    return processed
+            result = func(result)
+        except Exception as e:
+            raise DataMangleError(f"Pipeline failure at {func.__name__}: {e}") from e
+    return result
