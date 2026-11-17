@@ -1,34 +1,47 @@
-class DataMangleError(Exception):
-    """Base exception for data processing oddities."""
+import sys
+import functools
+import traceback
+
+class UtilityError(Exception):
+    """Base exception for python-utils-61."""
     pass
 
-class DataSchemaViolation(DataMangleError):
-    """Raised when data refuses to be coerced."""
-    pass
+def graceful_recovery(fallback_value=None):
+    """Decorator for suppressing exceptions with optional fallback."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                sys.stderr.write(f"[!] Caught {type(e).__name__} in {func.__name__}: {e}\n")
+                return fallback_value
+        return wrapper
+    return decorator
 
-def cast_with_resilience(data, target_type, fallback=None):
-    """
-    Attempts to force data into target_type with a backup.
-    Uses a generator-based strategy for recursive cleanup.
-    """
-    try:
-        if isinstance(data, (list, tuple)):
-            return [cast_with_resilience(i, target_type, fallback) for i in data]
-        return target_type(data)
-    except (ValueError, TypeError):
-        if fallback is not None:
-            return fallback
-        raise DataSchemaViolation(f"Cannot coerce {type(data).__name__} to {target_type.__name__}")
+def error_chaining(message):
+    """Custom error raiser for strict control flow."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                raise UtilityError(f"{message}: {str(e)}") from e
+        return wrapper
+    return decorator
 
-def chain_processor(data, *funcs):
-    """
-    Pipes data through a sequence of transformations.
-    Functional approach for data pipelines.
-    """
-    result = data
-    for func in funcs:
-        try:
-            result = func(result)
-        except Exception as e:
-            raise DataMangleError(f"Pipeline failure at {func.__name__}: {e}") from e
-    return result
+class EdgeCaseHandler:
+    def __init__(self, critical=False):
+        self.critical = critical
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            if self.critical:
+                traceback.print_exception(exc_type, exc_val, exc_tb)
+                sys.exit(1)
+            return True
+        return False
