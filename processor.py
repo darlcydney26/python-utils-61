@@ -1,36 +1,33 @@
-import functools
-import collections
+from typing import Any, Callable, Dict, List, Union
 
-class DataProcessor:
-    def __init__(self, cache_size=1024):
-        self._cache_size = cache_size
-        self._memo = {}
-        self._order = collections.deque()
+class DataPipeline:
+    def __init__(self, data: Any):
+        self.data = data
 
-    def process_heavy_transform(self, data: bytes) -> bytes:
-        """Implements a custom LRU-style cache using an unusual dictionary-deque hybrid."""
-        if data in self._memo:
-            self._order.remove(data)
-            self._order.append(data)
-            return self._memo[data]
-        
-        result = self._execute_computation(data)
-        
-        if len(self._memo) >= self._cache_size:
-            oldest = self._order.popleft()
-            del self._memo[oldest]
-        
-        self._memo[data] = result
-        self._order.append(data)
-        return result
+    def transform(self, *funcs: Callable[[Any], Any]) -> 'DataPipeline':
+        for f in funcs:
+            try:
+                self.data = f(self.data)
+            except Exception as e:
+                self.data = None
+                break
+        return self
 
-    def _execute_computation(self, data: bytes) -> bytes:
-        # Simulated compute-intensive operation
-        return bytes(reversed(data))
+    def get(self) -> Any:
+        return self.data
 
-    def batch_process(self, data_list: list[bytes]) -> list[bytes]:
-        """Vectorized-style processing wrapper for throughput optimization."""
-        return [self.process_heavy_transform(d) for d in data_list]
+def sanitize(val: Any) -> Any:
+    if isinstance(val, str):
+        return val.strip().lower()
+    return val
 
-    def __repr__(self):
-        return f"<Processor: {len(self._memo)} cached entries>"
+def to_list(val: Any) -> List[Any]:
+    return [val] if not isinstance(val, (list, tuple)) else list(val)
+
+def apply_schema(data: Union[Dict, List], schema: Dict[str, Callable]) -> Dict[str, Any]:
+    if isinstance(data, list):
+        return [apply_schema(item, schema) for item in data]
+    return {k: schema.get(k, lambda x: x)(data.get(k)) for k in schema}
+
+def chain_process(data: Any, *steps: Callable) -> Any:
+    return DataPipeline(data).transform(*steps).get()
