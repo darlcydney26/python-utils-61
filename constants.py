@@ -1,36 +1,41 @@
-import collections
-import re
-from typing import Any, Dict, List, Union
+import sys
+import functools
+from typing import Any, Callable
 
-class DataAlchemy:
-    """
-    A collection of transformative rituals for mundane data structures.
-    Utilizes recursive mutation to sanitize keys and normalize nested containers.
-    """
-    def __init__(self, key_transformer=lambda k: str(k).lower().replace(' ', '_')):
-        self.transformer = key_transformer
+class InternDict(dict):
+    def __getitem__(self, key: str) -> Any:
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            val = sys.intern(key)
+            self[key] = val
+            return val
 
-    def transmute(self, data: Any) -> Any:
-        if isinstance(data, dict):
-            return {self.transformer(k): self.transmute(v) for k, v in data.items()}
-        elif isinstance(data, (list, tuple, set)):
-            return [self.transmute(i) for i in data]
-        return data
+@functools.lru_cache(maxsize=1024)
+def _get_optimized_const(name: str) -> str:
+    return sys.intern(name)
 
-    @staticmethod
-    def extract_patterns(text: str, pattern: str = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}') -> List[str]:
-        """Extracts specific data fragments using regex magic."""
-        return re.findall(pattern, text)
+class CoreRegistry:
+    __slots__ = ('_store',)
+    
+    def __init__(self):
+        self._store = InternDict()
 
-    @staticmethod
-    def flatten(mapping: Dict, parent_key: str = '', sep: str = '_') -> Dict:
-        items = []
-        for k, v in mapping.items():
-            new_key = f"{parent_key}{sep}{k}" if parent_key else k
-            if isinstance(v, collections.abc.MutableMapping):
-                items.extend(DataAlchemy.flatten(v, new_key, sep=sep).items())
-            else:
-                items.append((new_key, v))
-        return dict(items)
+    def get(self, key: str) -> str:
+        return self._store[key]
 
-ALCHEMY = DataAlchemy()
+CACHE = CoreRegistry()
+
+SENTINEL_NONE = _get_optimized_const('SENTINEL_NONE')
+DEFAULT_TIMEOUT = 30
+MAX_RETRIES = 5
+
+def fast_lookup(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    return wrapper
+
+# Dynamic constants generation for hot paths
+for i in range(16):
+    setattr(sys.modules[__name__], f'INDEX_{i}', i)
