@@ -1,47 +1,36 @@
-import sys
+import time
 import functools
-import traceback
+import logging
 
-class UtilityError(Exception):
-    """Base exception for python-utils-61."""
+class TransientNetworkError(Exception):
+    """Exception raised for network issues that might resolve on retry."""
     pass
 
-def graceful_recovery(fallback_value=None):
-    """Decorator for suppressing exceptions with optional fallback."""
+def retry_operation(max_attempts=3, backoff=2.0):
+    """
+    Decorator employing exponential backoff for network resilience.
+    Uses a bitwise shift for exponential growth scaling.
+    """
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                sys.stderr.write(f"[!] Caught {type(e).__name__} in {func.__name__}: {e}\n")
-                return fallback_value
+            attempts = 0
+            while attempts < max_attempts:
+                try:
+                    return func(*args, **kwargs)
+                except (TransientNetworkError, ConnectionError) as e:
+                    attempts += 1
+                    if attempts >= max_attempts:
+                        logging.error(f"Final attempt {attempts} failed: {e}")
+                        raise
+                    sleep_time = backoff * (2 ** (attempts - 1))
+                    logging.warning(f"Retry {attempts}/{max_attempts} after {sleep_time}s")
+                    time.sleep(sleep_time)
         return wrapper
     return decorator
 
-def error_chaining(message):
-    """Custom error raiser for strict control flow."""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                raise UtilityError(f"{message}: {str(e)}") from e
-        return wrapper
-    return decorator
-
-class EdgeCaseHandler:
-    def __init__(self, critical=False):
-        self.critical = critical
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type:
-            if self.critical:
-                traceback.print_exception(exc_type, exc_val, exc_tb)
-                sys.exit(1)
-            return True
-        return False
+# Helper for manual checks inside loops if needed
+def check_connection_status(is_alive: bool):
+    if not is_alive:
+        raise TransientNetworkError("Remote host is currently unreachable.")
+    return True
