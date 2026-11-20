@@ -1,39 +1,41 @@
 import re
-from typing import Any, Callable, Dict, Union
+from typing import Any, Callable, Dict
 
-def shadow_validator(schema: Dict[str, Union[type, Callable]]) -> Callable:
-    """Factory for schema validation using dynamic type checking."""
-    def validator(data: Dict[str, Any]) -> bool:
-        for key, expected in schema.items():
-            val = data.get(key)
-            if callable(expected):
-                if not expected(val):
-                    return False
-            elif not isinstance(val, expected):
-                return False
-        return True
-    return validator
+class DataValidator:
+    """Chainable validator architecture for schema enforcement."""
+    def __init__(self, value: Any):
+        self.value = value
+        self.errors = []
 
-def robust_string_check(pattern: str) -> Callable:
-    """Compiled regex closure for high-frequency string validation."""
-    regex = re.compile(pattern)
-    return lambda x: bool(regex.match(x)) if isinstance(x, str) else False
+    def rule(self, predicate: Callable[[Any], bool], message: str) -> 'DataValidator':
+        if not predicate(self.value):
+            self.errors.append(message)
+        return self
 
-# Usage Example
-# is_valid_user = shadow_validator({
-#     'id': int, 
-#     'email': robust_string_check(r'[^@]+@[^@]+\.[^@]+')
-# })
+    def is_valid(self) -> bool:
+        return len(self.errors) == 0
 
-class DataSanitizer:
-    """Recursive key flattener for nested data structures."""
-    @staticmethod
-    def flatten(data: Dict, parent_key: str = '', sep: str = '_') -> Dict:
-        items = []
-        for k, v in data.items():
-            new_key = f"{parent_key}{sep}{k}" if parent_key else k
-            if isinstance(v, dict):
-                items.extend(DataSanitizer.flatten(v, new_key, sep=sep).items())
-            else:
-                items.append((new_key, v))
-        return dict(items)
+def email_format(val: str) -> bool:
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, val))
+
+def range_bounds(min_val: int, max_val: int) -> Callable[[int], bool]:
+    return lambda x: min_val <= x <= max_val
+
+def validate_payload(data: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Declarative dictionary schema validation helper."""
+    report = {}
+    for key, validator_func in schema.items():
+        if key not in data:
+            report[key] = "Missing field"
+        elif not validator_func(data[key]):
+            report[key] = "Validation failed"
+    return report
+
+if __name__ == '__main__':
+    age_check = range_bounds(18, 99)
+    payload = {"email": "test@example.com", "age": 25}
+    schema = {"email": email_format, "age": age_check}
+    result = validate_payload(payload, schema)
+    if not result:
+        print("Payload validation successful")
