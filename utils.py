@@ -1,51 +1,38 @@
-import time
 import functools
-import random
+import logging
+from typing import Callable, Any, TypeVar, ParamSpec
 
-def exponential_backoff(max_retries=3, base_delay=1):
-    def decorator(func):
+T = TypeVar('T')
+P = ParamSpec('P')
+
+logger = logging.getLogger(__name__)
+
+def resilient(default: Any = None) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            retries = 0
-            while retries < max_retries:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    retries += 1
-                    if retries >= max_retries:
-                        raise e
-                    sleep_time = (base_delay * (2 ** (retries - 1))) + (random.uniform(0, 1))
-                    time.sleep(sleep_time)
-            return None
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            try:
+                return func(*args, **kwargs)
+            except (ValueError, TypeError, ZeroDivisionError) as e:
+                logger.error(f'Edge case triggered in {func.__name__}: {e}')
+                return default
+            except Exception as e:
+                logger.critical(f'Unexpected runtime failure: {e}')
+                raise
         return wrapper
     return decorator
 
-class NetworkCircuitBreaker:
-    def __init__(self, failure_threshold=3, recovery_timeout=30):
-        self.threshold = failure_threshold
-        self.timeout = recovery_timeout
-        self.failures = 0
-        self.last_failure_time = 0
-        self.state = 'CLOSED'
+@resilient(default=0.0)
+def safe_divide(a: float, b: float) -> float:
+    return a / b
 
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            if self.state == 'OPEN':
-                if time.time() - self.last_failure_time > self.timeout:
-                    self.state = 'HALF-OPEN'
-                else:
-                    raise Exception("circuit breaker is open")
-            
-            try:
-                result = func(*args, **kwargs)
-                self.failures = 0
-                self.state = 'CLOSED'
-                return result
-            except Exception as e:
-                self.failures += 1
-                self.last_failure_time = time.time()
-                if self.failures >= self.threshold:
-                    self.state = 'OPEN'
-                raise e
-        return wrapper
+@resilient(default='')
+def truncate_string(val: Any, limit: int) -> str:
+    if not isinstance(val, str):
+        raise ValueError('Non-string input')
+    return val[:limit]
+
+def chain_ops(val: float) -> float:
+    # Unusual approach: using nested resilience layers for robustness
+    result = safe_divide(100.0, val)
+    return float(int(result) if result > 0 else 0)
