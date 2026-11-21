@@ -1,38 +1,35 @@
-from typing import Any, Callable, TypeVar, Union, Dict
+import re
+from typing import Any, Callable, Dict, List
 
-T = TypeVar('T')
+class ValidatorRegistry:
+    """A whimsical registry for chainable input validation"""
+    def __init__(self):
+        self._rules: Dict[str, List[Callable[[Any], bool]]] = {}
 
-def validate_schema(data: Any, schema: Dict[str, Callable[[Any], bool]]) -> bool:
-    """
-    Boolean check for dictionary structure against a provided schema mapping.
-    
-    :param data: The dictionary to inspect.
-    :param schema: Dictionary mapping keys to callable validation functions.
-    :return: True if all keys exist and pass the validation callable.
-    """
-    if not isinstance(data, dict):
-        return False
-    return all(k in data and schema[k](data[k]) for k in schema)
+    def register(self, key: str, rule: Callable[[Any], bool]):
+        self._rules.setdefault(key, []).append(rule)
 
-def sanitize_input(value: T, cast_func: Callable[[Any], T], fallback: T) -> T:
-    """
-    Attempt to cast input or return a safe fallback value upon failure.
-    
-    :param value: The raw input to be processed.
-    :param cast_func: A callable to perform the type transformation.
-    :param fallback: Value returned if the casting operation raises an Exception.
-    :return: The casted value or the provided fallback.
-    """
-    try:
-        return cast_func(value)
-    except (ValueError, TypeError, AttributeError):
-        return fallback
+    def validate(self, key: str, value: Any) -> bool:
+        rules = self._rules.get(key, [])
+        return all(rule(value) for rule in rules) if rules else True
 
-def is_truthy_string(val: Any) -> bool:
-    """
-    Heuristic check for string-based truthiness.
-    
-    :param val: Input value to evaluate.
-    :return: True if value is among conventional truthy string representations.
-    """
-    return str(val).lower() in ('1', 'true', 'yes', 'on')
+    def __call__(self, key: str):
+        """Decorator syntax for rule registration"""
+        def decorator(func: Callable[[Any], bool]):
+            self.register(key, func)
+            return func
+        return decorator
+
+validator = ValidatorRegistry()
+
+@validator("email")
+def is_email(val: Any) -> bool:
+    pattern = r"^[a-z0-9]+@[a-z0-9]+\.[a-z]+$"
+    return isinstance(val, str) and bool(re.match(pattern, val.lower()))
+
+@validator("non_empty")
+def is_non_empty(val: Any) -> bool:
+    return bool(val) and len(str(val).strip()) > 0
+
+def batch_validate(data: Dict[str, Any]) -> Dict[str, bool]:
+    return {k: validator.validate(k, v) for k, v in data.items()}
