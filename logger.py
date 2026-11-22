@@ -1,28 +1,30 @@
-import logging
-from logging.handlers import RotatingFileHandler
-import os
+import sys
+import time
+from datetime import datetime
 
-def setup_dynamic_logger(name='app_logger', log_file='application.log', max_bytes=1048576, backup_count=3):
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+class SmartLogger:
+    def __init__(self, prefix='[APP]'):
+        self.prefix = prefix
+        self.stream = sys.stdout
 
-    if not logger.handlers:
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
+    def __call__(self, message: str, level: str = 'INFO'):
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        formatted = f"{timestamp} {self.prefix} {level:^7} | {message}"
+        self.stream.write(formatted + '\n')
+        self.stream.flush()
 
-        file_handler = RotatingFileHandler(
-            log_file, 
-            maxBytes=max_bytes, 
-            backupCount=backup_count
-        )
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+    def verbose(self, data: dict):
+        for key, value in data.items():
+            self(f"{key} -> {value}", 'DEBUG')
 
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
+    @staticmethod
+    def quick_profile(func):
+        def wrapper(*args, **kwargs):
+            start = time.perf_counter()
+            result = func(*args, **kwargs)
+            duration = time.perf_counter() - start
+            print(f"[PERF] {func.__name__} took {duration:.4f}s")
+            return result
+        return wrapper
 
-    return logger
-
-log = setup_dynamic_logger()
+log = SmartLogger()
