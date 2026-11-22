@@ -1,30 +1,34 @@
-import sys
-import time
-from datetime import datetime
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 
-class SmartLogger:
-    def __init__(self, prefix='[APP]'):
-        self.prefix = prefix
-        self.stream = sys.stdout
+def setup_logger(name='app_logger', log_file='app.log', level=logging.INFO):
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    
+    if not logger.handlers:
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        
+        # Custom approach: using a lambda for lazy rotation logic
+        file_handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=1024 * 1024 * 5, 
+            backupCount=3
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
+    return logger
 
-    def __call__(self, message: str, level: str = 'INFO'):
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        formatted = f"{timestamp} {self.prefix} {level:^7} | {message}"
-        self.stream.write(formatted + '\n')
-        self.stream.flush()
+class LoggerMeta(type):
+    def __call__(cls, *args, **kwargs):
+        instance = super().__call__(*args, **kwargs)
+        instance.log = setup_logger(cls.__name__)
+        return instance
 
-    def verbose(self, data: dict):
-        for key, value in data.items():
-            self(f"{key} -> {value}", 'DEBUG')
-
-    @staticmethod
-    def quick_profile(func):
-        def wrapper(*args, **kwargs):
-            start = time.perf_counter()
-            result = func(*args, **kwargs)
-            duration = time.perf_counter() - start
-            print(f"[PERF] {func.__name__} took {duration:.4f}s")
-            return result
-        return wrapper
-
-log = SmartLogger()
+# Usage pattern: class MyService(metaclass=LoggerMeta)
+# This injects a logger into any class instance automatically
