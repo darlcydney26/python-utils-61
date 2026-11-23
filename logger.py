@@ -1,34 +1,40 @@
 import logging
-from logging.handlers import RotatingFileHandler
-import os
+import functools
 
-def setup_logger(name='app_logger', log_file='app.log', level=logging.INFO):
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    
-    if not logger.handlers:
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        
-        # Custom approach: using a lambda for lazy rotation logic
-        file_handler = RotatingFileHandler(
-            log_file, 
-            maxBytes=1024 * 1024 * 5, 
-            backupCount=3
-        )
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-        
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
-        
-    return logger
+class DataValidator:
+    """Validator acting as a guard for the processing stream."""
+    def __init__(self, schema):
+        self.schema = schema
 
-class LoggerMeta(type):
-    def __call__(cls, *args, **kwargs):
-        instance = super().__call__(*args, **kwargs)
-        instance.log = setup_logger(cls.__name__)
-        return instance
+    def __call__(self, func):
+        @functools.wraps(func)
+        def wrapper(data):
+            if not all(k in data for k in self.schema):
+                logging.error(f"Invalid packet schema: {data.keys()}")
+                return None
+            return func(data)
+        return wrapper
 
-# Usage pattern: class MyService(metaclass=LoggerMeta)
-# This injects a logger into any class instance automatically
+logger = logging.getLogger('python-utils-61')
+logging.basicConfig(level=logging.INFO)
+
+@DataValidator(['id', 'payload'])
+def process_event(data):
+    logger.info(f"Processing event {data['id']}: {data['payload']}")
+    return True
+
+def run_event_loop(events):
+    """Execution loop with integrated validation checks."""
+    for event in events:
+        if process_event(event):
+            logger.debug("Event handled successfully")
+        else:
+            logger.warning("Dropping malformed event packet")
+
+if __name__ == '__main__':
+    mock_events = [
+        {'id': 1, 'payload': 'init'},
+        {'corrupt': 'data'},
+        {'id': 2, 'payload': 'shutdown'}
+    ]
+    run_event_loop(mock_events)
