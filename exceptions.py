@@ -1,36 +1,33 @@
-import time
-import functools
-import logging
+class UtilityError(Exception):
+    """Base exception for python-utils-61."""
 
-class TransientNetworkError(Exception):
-    """Exception raised for network issues that might resolve on retry."""
-    pass
+class ConfigurationError(UtilityError):
+    """Raised when configuration constraints are violated."""
 
-def retry_operation(max_attempts=3, backoff=2.0):
-    """
-    Decorator employing exponential backoff for network resilience.
-    Uses a bitwise shift for exponential growth scaling.
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            attempts = 0
-            while attempts < max_attempts:
-                try:
-                    return func(*args, **kwargs)
-                except (TransientNetworkError, ConnectionError) as e:
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        logging.error(f"Final attempt {attempts} failed: {e}")
-                        raise
-                    sleep_time = backoff * (2 ** (attempts - 1))
-                    logging.warning(f"Retry {attempts}/{max_attempts} after {sleep_time}s")
-                    time.sleep(sleep_time)
-        return wrapper
-    return decorator
+class ProcessingError(UtilityError):
+    """Raised when data pipeline operations fail."""
 
-# Helper for manual checks inside loops if needed
-def check_connection_status(is_alive: bool):
-    if not is_alive:
-        raise TransientNetworkError("Remote host is currently unreachable.")
-    return True
+class Registry:
+    """Dynamic exception catalog using registry pattern."""
+    _registry = {}
+
+    @classmethod
+    def register(cls, name: str, base=UtilityError):
+        def decorator(klass):
+            cls._registry[name] = klass
+            return klass
+        return decorator
+
+    @classmethod
+    def raise_by_name(cls, name: str, *args):
+        exc_class = cls._registry.get(name, UtilityError)
+        raise exc_class(*args)
+
+@Registry.register("validation")
+class ValidationError(UtilityError):
+    def __init__(self, field, reason):
+        super().__init__(f"Field {field} invalid: {reason}")
+
+def ensure(condition: bool, error_type: str, *args):
+    if not condition:
+        Registry.raise_by_name(error_type, *args)
