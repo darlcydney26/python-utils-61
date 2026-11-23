@@ -1,40 +1,36 @@
 import logging
-import functools
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+import sys
 
-class DataValidator:
-    """Validator acting as a guard for the processing stream."""
-    def __init__(self, schema):
-        self.schema = schema
+class CreativeLogger:
+    def __init__(self, name='app_logger', log_file='app.log'):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
+        
+        log_path = Path(log_file)
+        log_path.touch(exist_ok=True)
+        
+        formatter = logging.Formatter(
+            '%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
 
-    def __call__(self, func):
-        @functools.wraps(func)
-        def wrapper(data):
-            if not all(k in data for k in self.schema):
-                logging.error(f"Invalid packet schema: {data.keys()}")
-                return None
-            return func(data)
-        return wrapper
+        file_handler = RotatingFileHandler(
+            log_path,
+            maxBytes=1024 * 1024 * 5,
+            backupCount=3,
+            encoding='utf-8'
+        )
+        file_handler.setFormatter(formatter)
+        self.logger.addHandler(file_handler)
 
-logger = logging.getLogger('python-utils-61')
-logging.basicConfig(level=logging.INFO)
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        self.logger.addHandler(console_handler)
 
-@DataValidator(['id', 'payload'])
-def process_event(data):
-    logger.info(f"Processing event {data['id']}: {data['payload']}")
-    return True
+    def get_logger(self):
+        return self.logger
 
-def run_event_loop(events):
-    """Execution loop with integrated validation checks."""
-    for event in events:
-        if process_event(event):
-            logger.debug("Event handled successfully")
-        else:
-            logger.warning("Dropping malformed event packet")
-
-if __name__ == '__main__':
-    mock_events = [
-        {'id': 1, 'payload': 'init'},
-        {'corrupt': 'data'},
-        {'id': 2, 'payload': 'shutdown'}
-    ]
-    run_event_loop(mock_events)
+def setup_logging(name='python-utils-61'):
+    return CreativeLogger(name=name).get_logger()
