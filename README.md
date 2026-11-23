@@ -1,50 +1,42 @@
 # python-utils-61
 
-A comprehensive collection of production-ready Python utility functions designed to streamline daily development tasks. This library focuses on performance, type safety, and reducing boilerplate code in data processing and system operations.
+A comprehensive collection of lightweight, high-performance Python utility functions designed to streamline repetitive development tasks. This library focuses on clean code principles and zero external dependencies for maximum portability.
 
 ## Features
 
-*   **Robust File Operations**: Simplified wrappers for recursive directory traversal and atomic file writing with automated permission handling.
-*   **Time-Series Helpers**: Efficient conversion utilities for ISO-8601 formatting, timezone normalization, and execution latency tracking.
-*   **Data Transformation**: High-performance tools for deep-merging nested dictionaries and flattening complex JSON structures.
-*   **Safe Execution**: Thread-safe retry decorators with exponential backoff logic for handling transient network failures.
+*   **Data Validation**: Robust type-checking and sanitization helpers for nested JSON structures.
+*   **File System Wrappers**: Simplified recursive directory walking and batch file renaming utilities.
+*   **Performance Decorators**: Built-in memoization and execution time logging to optimize expensive functions.
+*   **String Formatting**: Advanced slugifiers and case-conversion tools for cleaner data processing.
 
 ## Installation
 
-Install the package directly from PyPI using pip:
+Install the package directly via pip:
 
 ```bash
 pip install python-utils-61
 ```
 
-For development installations including testing dependencies:
+Or add it to your `requirements.txt`:
 
-```bash
-git clone https://github.com/Developer/python-utils-61.git
-cd python-utils-61
-pip install -e .[dev]
+```text
+python-utils-61>=1.0.0
 ```
 
-## Usage
+## Basic Usage
 
-Below is an example of how to use the retry decorator to handle flaky network requests:
+Import the modules directly to leverage the utility set:
 
 ```python
-from pyutils_61.decorators import retry
+from pyutils61 import strings, decorators
 
-@retry(attempts=3, delay=2)
-def fetch_api_data(url):
-    # Logic prone to occasional connection timeouts
-    ...
+# Use performance logging on a function
+@decorators.time_execution
+def process_data(data):
+    return strings.to_slug(data)
 
-# Perform deep merge on nested configuration dictionaries
-from pyutils_61.data import deep_merge
-
-config_a = {"db": {"port": 5432}}
-config_b = {"db": {"host": "localhost"}}
-
-merged = deep_merge(config_a, config_b)
-# Result: {'db': {'port': 5432, 'host': 'localhost'}}
+result = process_data("Hello World!")
+print(result) # Output: hello-world
 ```
 
 ## License
