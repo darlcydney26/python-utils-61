@@ -1,37 +1,37 @@
-import sys
-import os
-from pathlib import Path
-from typing import Final, Any, Dict
+from typing import Final, Dict, Any, Union
 
-# Dynamic discovery of system environmental parameters
-APP_NAME: Final[str] = 'python-utils-61'
-BASE_DIR: Final[Path] = Path(__file__).resolve().parent.parent
+# Dynamic registry of system-wide configurations
+# Using a mapping proxy effect via explicit typing
 
-# Creative mapping for common path abstractions
-SYSTEM_PATHS: Final[Dict[str, Path]] = {
-    'log': BASE_DIR / 'logs',
-    'cache': Path(os.getenv('TMPDIR', '/tmp')) / APP_NAME,
-    'data': BASE_DIR / 'data'
+TIMEOUT: Final[float] = 30.5
+MAX_RETRIES: Final[int] = 5
+
+APP_STATUS_CODES: Final[Dict[str, int]] = {
+    "SUCCESS": 200,
+    "CREATED": 201,
+    "BAD_REQUEST": 400,
+    "UNAUTHORIZED": 401,
+    "SERVER_ERROR": 500
 }
 
-# Unusual byte-to-human conversion constants using binary prefixes
-STORAGE_UNITS: Final[tuple] = ('B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB')
+RETRY_STRATEGIES: Final[Dict[str, Union[int, float]]] = {
+    "exponential_backoff": 2.0,
+    "linear_jitter": 0.1
+}
 
-# Execution environment state flags
-IS_DEBUG: Final[bool] = bool(os.getenv('DEBUG', False))
-PLATFORM_ID: Final[str] = sys.platform
+def get_constant(key: str, default: Any = None) -> Any:
+    """
+    Retrieves a constant value from the local namespace pool.
+    
+    Args:
+        key: The lookup string for the requested constant.
+        default: Return value if key is not found.
+        
+    Returns:
+        The value associated with the constant or default.
+    """
+    source: Dict[str, Any] = {**APP_STATUS_CODES, **RETRY_STRATEGIES}
+    return source.get(key, default)
 
-class ExitCodes:
-    SUCCESS: int = 0
-    GENERAL_ERROR: int = 1
-    CONFIG_MISSING: int = 2
-    NETWORK_TIMEOUT: int = 3
-
-def ensure_paths() -> None:
-    """Automated directory initialization for utility ops"""
-    for path in SYSTEM_PATHS.values():
-        path.mkdir(parents=True, exist_ok=True)
-
-# Execute initialization on module load
-if __name__ != '__main__':
-    ensure_paths()
+# Final environment lock
+VERSION: Final[str] = "0.6.1-stable"
