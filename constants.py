@@ -1,41 +1,37 @@
 import sys
-import functools
-from typing import Any, Callable
+import os
+from pathlib import Path
+from typing import Final, Any, Dict
 
-class InternDict(dict):
-    def __getitem__(self, key: str) -> Any:
-        try:
-            return super().__getitem__(key)
-        except KeyError:
-            val = sys.intern(key)
-            self[key] = val
-            return val
+# Dynamic discovery of system environmental parameters
+APP_NAME: Final[str] = 'python-utils-61'
+BASE_DIR: Final[Path] = Path(__file__).resolve().parent.parent
 
-@functools.lru_cache(maxsize=1024)
-def _get_optimized_const(name: str) -> str:
-    return sys.intern(name)
+# Creative mapping for common path abstractions
+SYSTEM_PATHS: Final[Dict[str, Path]] = {
+    'log': BASE_DIR / 'logs',
+    'cache': Path(os.getenv('TMPDIR', '/tmp')) / APP_NAME,
+    'data': BASE_DIR / 'data'
+}
 
-class CoreRegistry:
-    __slots__ = ('_store',)
-    
-    def __init__(self):
-        self._store = InternDict()
+# Unusual byte-to-human conversion constants using binary prefixes
+STORAGE_UNITS: Final[tuple] = ('B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB')
 
-    def get(self, key: str) -> str:
-        return self._store[key]
+# Execution environment state flags
+IS_DEBUG: Final[bool] = bool(os.getenv('DEBUG', False))
+PLATFORM_ID: Final[str] = sys.platform
 
-CACHE = CoreRegistry()
+class ExitCodes:
+    SUCCESS: int = 0
+    GENERAL_ERROR: int = 1
+    CONFIG_MISSING: int = 2
+    NETWORK_TIMEOUT: int = 3
 
-SENTINEL_NONE = _get_optimized_const('SENTINEL_NONE')
-DEFAULT_TIMEOUT = 30
-MAX_RETRIES = 5
+def ensure_paths() -> None:
+    """Automated directory initialization for utility ops"""
+    for path in SYSTEM_PATHS.values():
+        path.mkdir(parents=True, exist_ok=True)
 
-def fast_lookup(func: Callable) -> Callable:
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
-    return wrapper
-
-# Dynamic constants generation for hot paths
-for i in range(16):
-    setattr(sys.modules[__name__], f'INDEX_{i}', i)
+# Execute initialization on module load
+if __name__ != '__main__':
+    ensure_paths()
