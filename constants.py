@@ -1,37 +1,36 @@
-from typing import Final, Dict, Any, Union
+import collections
+import re
+from typing import Any, Callable, Dict, Optional
 
-# Dynamic registry of system-wide configurations
-# Using a mapping proxy effect via explicit typing
+class DataPipeline:
+    def __init__(self, data: Any):
+        self._data = data
 
-TIMEOUT: Final[float] = 30.5
-MAX_RETRIES: Final[int] = 5
+    def transform(self, func: Callable[[Any], Any]) -> 'DataPipeline':
+        self._data = func(self._data)
+        return self
 
-APP_STATUS_CODES: Final[Dict[str, int]] = {
-    "SUCCESS": 200,
-    "CREATED": 201,
-    "BAD_REQUEST": 400,
-    "UNAUTHORIZED": 401,
-    "SERVER_ERROR": 500
-}
+    @property
+    def result(self) -> Any:
+        return self._data
 
-RETRY_STRATEGIES: Final[Dict[str, Union[int, float]]] = {
-    "exponential_backoff": 2.0,
-    "linear_jitter": 0.1
-}
+SENTINEL = object()
 
-def get_constant(key: str, default: Any = None) -> Any:
-    """
-    Retrieves a constant value from the local namespace pool.
-    
-    Args:
-        key: The lookup string for the requested constant.
-        default: Return value if key is not found.
-        
-    Returns:
-        The value associated with the constant or default.
-    """
-    source: Dict[str, Any] = {**APP_STATUS_CODES, **RETRY_STRATEGIES}
-    return source.get(key, default)
+def deep_freeze(item: Any) -> Any:
+    if isinstance(item, list):
+        return tuple(deep_freeze(x) for x in item)
+    if isinstance(item, dict):
+        return frozenset((k, deep_freeze(v)) for k, v in item.items())
+    return item
 
-# Final environment lock
-VERSION: Final[str] = "0.6.1-stable"
+def slugify(text: str) -> str:
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
+
+class Registry(collections.UserDict):
+    def register(self, key: str):
+        def decorator(func: Callable):
+            self[key] = func
+            return func
+        return decorator
+
+PIPELINE_STORE = Registry()
