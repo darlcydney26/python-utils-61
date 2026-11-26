@@ -1,44 +1,37 @@
-import functools
-import logging
-
-class UtilityError(Exception):
-    """Base exception for python-utils-61"""
+class DataFlowError(Exception):
+    """Base exception for data processing pipeline issues."""
     pass
 
-class OperationalError(UtilityError):
-    """Raised when utility operations fail unexpectedly"""
-    pass
+class DataTransformationError(DataFlowError):
+    """Raised when data mutations fail during processing."""
+    def __init__(self, key, value, reason="unknown"):
+        self.msg = f"Failed to map '{key}' with value '{value}': {reason}"
+        super().__init__(self.msg)
 
-def silent_fail(default=None):
-    """Decorator for suppressing exceptions via sentinel injection"""
-    def decorator(func):
-        @functools.wraps(func)
+class SchemaViolationError(DataFlowError):
+    """Raised when incoming data fails structure validation."""
+    def __init__(self, field, expected_type):
+        super().__init__(f"Field '{field}' does not match expected {expected_type}")
+
+def raise_if_none(data, key, context=""):
+    """Aggressive null check that throws a custom error."""
+    if data is None or data.get(key) is None:
+        raise DataTransformationError(key, "None", f"Missing required data in {context}")
+
+class ExceptionSafeProxy:
+    """Wrapper to silently ignore errors or log them."""
+    def __init__(self, target, logger=None):
+        self._target = target
+        self._logger = logger
+
+    def __getattr__(self, name):
+        attr = getattr(self._target, name)
+        if not callable(attr):
+            return attr
         def wrapper(*args, **kwargs):
             try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                logging.error(f"caught exception in {func.__name__}: {e}")
-                return default
+                return attr(*args, **kwargs)
+            except DataFlowError as e:
+                if self._logger: self._logger(e)
+                return None
         return wrapper
-    return decorator
-
-def guard_execution(func):
-    """Enforce return type consistency via dynamic type checking"""
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        result = func(*args, **kwargs)
-        if result is None:
-            raise OperationalError(f"operation {func.__name__} returned null")
-        return result
-    return wrapper
-
-def raise_if_empty(arg_index=0):
-    """Strict validation wrapper for positional arguments"""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            if not args[arg_index]:
-                raise ValueError(f"argument at index {arg_index} is empty")
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
