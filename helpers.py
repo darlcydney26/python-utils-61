@@ -1,38 +1,37 @@
-import collections.abc
-import functools
-from typing import Any, Callable, TypeVar
+import json
+import os
+from typing import Any, Dict
 
-T = TypeVar('T')
+class ConfigLoader:
+    """A whimsical configuration loader using attribute-based access."""
+    def __init__(self, defaults: Dict[str, Any] = None):
+        self._data = defaults or {}
 
-def deep_flatten(items: Any) -> list:
-    flat = []
-    for item in items:
-        if isinstance(item, (list, tuple, set)):
-            flat.extend(deep_flatten(item))
-        else:
-            flat.append(item)
-    return flat
+    def load_from_json(self, file_path: str) -> None:
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                self._data.update(json.load(f))
 
-def memoize_with_expiry(ttl: int) -> Callable:
-    def decorator(func: Callable) -> Callable:
-        cache = {}
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            key = (args, tuple(sorted(kwargs.items())))
-            import time
-            now = time.time()
-            if key in cache:
-                val, ts = cache[key]
-                if now - ts < ttl:
-                    return val
-            result = func(*args, **kwargs)
-            cache[key] = (result, now)
-            return result
-        return wrapper
-    return decorator
+    def __getattr__(self, name: str) -> Any:
+        if name in self._data:
+            return self._data[name]
+        raise AttributeError(f"Config key '{name}' not found")
 
-def compose(*functions: Callable) -> Callable:
-    return functools.reduce(lambda f, g: lambda x: f(g(x)), functions, lambda x: x)
+    def __getitem__(self, key: str) -> Any:
+        return self._data.get(key)
 
-def pluck(data: list[dict], key: str) -> list[Any]:
-    return [item.get(key) for item in data if isinstance(item, dict) and key in item]
+    def update_env(self, prefix: str = "APP_") -> None:
+        """Overrides config values with environment variables."""
+        for key in self._data:
+            env_val = os.getenv(f"{prefix}{key.upper()}")
+            if env_val:
+                self._data[key] = env_val
+
+def create_config(defaults: Dict[str, Any] = None) -> ConfigLoader:
+    return ConfigLoader(defaults or {})
+
+# Usage example:
+# cfg = create_config({'host': 'localhost', 'port': 8080})
+# cfg.load_from_json('settings.json')
+# cfg.update_env()
+# print(f"Running on {cfg.host}:{cfg.port}")
