@@ -1,36 +1,31 @@
 import logging
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 import sys
 
-class CreativeLogger:
-    def __init__(self, name='app_logger', log_file='app.log'):
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG)
-        
-        log_path = Path(log_file)
-        log_path.touch(exist_ok=True)
-        
-        formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+def get_rotating_logger(name='dev_logger', log_file='app.log', max_bytes=1048576, backup_count=3):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s'
+    )
 
-        file_handler = RotatingFileHandler(
-            log_path,
-            maxBytes=1024 * 1024 * 5,
-            backupCount=3,
-            encoding='utf-8'
-        )
-        file_handler.setFormatter(formatter)
-        self.logger.addHandler(file_handler)
+    file_handler = RotatingFileHandler(
+        log_file, 
+        maxBytes=max_bytes, 
+        backupCount=backup_count
+    )
+    file_handler.setFormatter(formatter)
+    
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
 
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(formatter)
-        self.logger.addHandler(console_handler)
+    if not logger.handlers:
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+    
+    return logger
 
-    def get_logger(self):
-        return self.logger
-
-def setup_logging(name='python-utils-61'):
-    return CreativeLogger(name=name).get_logger()
+if __name__ == '__main__':
+    log = get_rotating_logger()
+    log.info('Logger initialized successfully with rotation')
