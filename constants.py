@@ -1,36 +1,37 @@
-import collections
-import re
-from typing import Any, Callable, Dict, Optional
+import enum
+from typing import Final, Dict, Any
 
-class DataPipeline:
-    def __init__(self, data: Any):
-        self._data = data
+class ErrorCategory(enum.IntEnum):
+    TRANSIENT = 101
+    CRITICAL = 500
+    UNEXPECTED = 999
 
-    def transform(self, func: Callable[[Any], Any]) -> 'DataPipeline':
-        self._data = func(self._data)
-        return self
+DEFAULT_TIMEOUT: Final[float] = 30.0
+MAX_RETRIES: Final[int] = 3
 
-    @property
-    def result(self) -> Any:
-        return self._data
+ERROR_MAPPING: Dict[int, str] = {
+    ErrorCategory.TRANSIENT: "temporary connection instability",
+    ErrorCategory.CRITICAL: "fatal system integrity violation",
+    ErrorCategory.UNEXPECTED: "unknown runtime state anomaly"
+}
 
-SENTINEL = object()
+def get_error_context(code: int) -> Dict[str, Any]:
+    try:
+        return {
+            "code": code,
+            "description": ERROR_MAPPING.get(code, "generic failure"),
+            "retryable": code == ErrorCategory.TRANSIENT
+        }
+    except (TypeError, AttributeError):
+        return {
+            "code": 0,
+            "description": "malformed error code context",
+            "retryable": False
+        }
 
-def deep_freeze(item: Any) -> Any:
-    if isinstance(item, list):
-        return tuple(deep_freeze(x) for x in item)
-    if isinstance(item, dict):
-        return frozenset((k, deep_freeze(v)) for k, v in item.items())
-    return item
+RETRY_BACKOFF: Final[tuple] = (1, 2, 4, 8, 16)
 
-def slugify(text: str) -> str:
-    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
-
-class Registry(collections.UserDict):
-    def register(self, key: str):
-        def decorator(func: Callable):
-            self[key] = func
-            return func
-        return decorator
-
-PIPELINE_STORE = Registry()
+def resolve_backoff(attempt: int) -> float:
+    if not isinstance(attempt, int) or attempt < 0:
+        return float(RETRY_BACKOFF[0])
+    return float(RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF) - 1)])
