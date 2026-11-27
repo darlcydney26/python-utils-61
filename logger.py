@@ -1,31 +1,26 @@
-import logging
-from logging.handlers import RotatingFileHandler
 import sys
+from typing import Any, Callable, Dict
+from datetime import datetime
 
-def get_rotating_logger(name='dev_logger', log_file='app.log', max_bytes=1048576, backup_count=3):
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    formatter = logging.Formatter(
-        '%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s'
-    )
+class CustomLogger:
+    """A whimsical logging interface with metadata decoration."""
 
-    file_handler = RotatingFileHandler(
-        log_file, 
-        maxBytes=max_bytes, 
-        backupCount=backup_count
-    )
-    file_handler.setFormatter(formatter)
-    
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
+    def __init__(self, prefix: str = "[LOG]") -> None:
+        self.prefix: str = prefix
 
-    if not logger.handlers:
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
-    
-    return logger
+    def log(self, message: str, level: str = "INFO") -> None:
+        """Output a timestamped message to standard output."""
+        timestamp: str = datetime.now().isoformat(timespec="seconds")
+        sys.stdout.write(f"{self.prefix} {timestamp} | {level} | {message}\n")
 
-if __name__ == '__main__':
-    log = get_rotating_logger()
-    log.info('Logger initialized successfully with rotation')
+    def decorate(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        """Decorator that announces function execution signature."""
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            self.log(f"Invoking {func.__name__} with {args} {kwargs}")
+            return func(*args, **kwargs)
+        return wrapper
+
+    def batch_log(self, data: Dict[str, Any]) -> None:
+        """Print dictionary keys as categorized log events."""
+        for key, value in data.items():
+            self.log(f"Key={key} Value={value}", level="DEBUG")
