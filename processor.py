@@ -1,43 +1,43 @@
 import functools
-import operator
-from typing import Any, Callable, Dict
+import time
+import collections
+from typing import Callable, Any, Dict
 
-class DataProcessor:
-    """High-performance batch processing with memoized pipeline execution."""
-    def __init__(self, cache_size: int = 1024):
-        self._cache = {}
-        self._cache_size = cache_size
-
-    def _evict_lru(self):
-        if len(self._cache) > self._cache_size:
-            key_to_del = next(iter(self._cache))
-            del self._cache[key_to_del]
-
-    def pipeline(self, *funcs: Callable[[Any], Any]) -> Callable[[Any], Any]:
-        def decorator(data: Any) -> Any:
-            pipeline_hash = hash(tuple(funcs))
-            state = (pipeline_hash, hash(str(data)))
-            
-            if state in self._cache:
-                return self._cache[state]
-            
-            result = functools.reduce(lambda x, f: f(x), funcs, data)
-            
-            self._cache[state] = result
-            self._evict_lru()
+def memoize_with_ttl(seconds: int = 300):
+    def decorator(func: Callable):
+        cache: Dict[tuple, tuple] = {}
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.time()
+            if key in cache and now - cache[key][0] < seconds:
+                return cache[key][1]
+            result = func(*args, **kwargs)
+            cache[key] = (now, result)
             return result
-        return decorator
+        return wrapper
+    return decorator
 
-    @staticmethod
-    def vectorized_op(data: list, op: str) -> list:
-        ops = {'add': operator.add, 'sub': operator.sub, 'mul': operator.mul}
-        func = ops.get(op, lambda x: x)
-        return list(map(lambda x: func(x, 1), data))
+def deep_flatten(items: list) -> list:
+    flat = []
+    for item in items:
+        if isinstance(item, (list, tuple)):
+            flat.extend(deep_flatten(item))
+        else:
+            flat.append(item)
+    return flat
 
-def heavy_transform(x):
-    return x ** 2 - x
+def dict_path_get(data: dict, path: str, default: Any = None):
+    keys = path.split('.')
+    try:
+        return functools.reduce(lambda d, k: d[k], keys, data)
+    except (KeyError, TypeError):
+        return default
 
-if __name__ == "__main__":
-    proc = DataProcessor()
-    p = proc.pipeline(heavy_transform, abs)
-    output = [p(i) for i in range(100)]
+def batch_iterator(iterable: list, size: int):
+    for i in range(0, len(iterable), size):
+        yield iterable[i:i + size]
+
+class IdentityCounter(collections.Counter):
+    def __missing__(self, key):
+        return 0
