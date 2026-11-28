@@ -1,26 +1,27 @@
-import sys
-from typing import Any, Callable, Dict
-from datetime import datetime
+import logging
+from logging.handlers import RotatingFileHandler
+import os
 
-class CustomLogger:
-    """A whimsical logging interface with metadata decoration."""
+class LoggerConfig:
+    def __init__(self, name='app_logger', log_file='app.log', max_bytes=1048576, backup_count=3):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.DEBUG)
+        self.formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        self._setup_rotation(log_file, max_bytes, backup_count)
 
-    def __init__(self, prefix: str = "[LOG]") -> None:
-        self.prefix: str = prefix
+    def _setup_rotation(self, log_file, max_bytes, backup_count):
+        handler = RotatingFileHandler(
+            log_file, 
+            maxBytes=max_bytes, 
+            backupCount=backup_count
+        )
+        handler.setFormatter(self.formatter)
+        self.logger.addHandler(handler)
+        
+        console = logging.StreamHandler()
+        console.setFormatter(self.formatter)
+        self.logger.addHandler(console)
 
-    def log(self, message: str, level: str = "INFO") -> None:
-        """Output a timestamped message to standard output."""
-        timestamp: str = datetime.now().isoformat(timespec="seconds")
-        sys.stdout.write(f"{self.prefix} {timestamp} | {level} | {message}\n")
-
-    def decorate(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        """Decorator that announces function execution signature."""
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            self.log(f"Invoking {func.__name__} with {args} {kwargs}")
-            return func(*args, **kwargs)
-        return wrapper
-
-    def batch_log(self, data: Dict[str, Any]) -> None:
-        """Print dictionary keys as categorized log events."""
-        for key, value in data.items():
-            self.log(f"Key={key} Value={value}", level="DEBUG")
+def get_logger(name='python-utils-61'):
+    config = LoggerConfig(name=name)
+    return config.logger
